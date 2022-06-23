@@ -1,2 +1,29 @@
-# mrbias
-Magnetic Resonance BIomarker Accreditation Software (MR-BIAS) is an automated tool for extracting quantitative MR parameters from NIST/ISMRM system phantom images.
+# MR-BIAS
+Magnetic Resonance BIomarker Accreditation Software (MR-BIAS) is an automated tool for extracting quantitative MR parameters from NIST/ISMRM system phantom images. The software has been tested on images from a 3T Siemens Skyra, we would like to add support for images from other scanners, for enquiries please contact us (james.korte@petermac.org). 
+### Citation
+A technical note describing the software is under review, a relevant citation will be provided upon publication.
+
+## Installation
+The software can be downloaded from github with the following command
+```
+git clone https://github.com/JamesCKorte/mrbias.git
+```
+The software makes use of existing python packages which can be installed with the following command
+```
+pip -r requirements.txt
+```
+The requirements.txt file is included in the downloaded software.
+
+## Usage
+A basic example and test data are included, to verify MR-BIAS is running on your system, please run the example script with
+```
+python mr_bias_example_1.py
+```
+
+
+
+
+
+
+
+

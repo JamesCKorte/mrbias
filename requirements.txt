@@ -1,0 +1,27 @@
+# standard python libraries
+os
+sys
+shutil
+collections
+re
+enum
+pathlib
+datetime
+io
+abc
+tempfile
+numbers
+
+# other packages
+SimpleITK >= 1.2.4
+numpy >= 1.19.5
+pandas >= 1.2.0
+scipy >= 1.6.0
+lmfit >= 1.0.2
+yaml >= 5.3.1
+pydicom >= 2.1.1
+matplotlib >= 3.5.1
+seaborn >= 0.11.1
+reportlab >= 3.5.59
+PIL >= 8.1.0
+

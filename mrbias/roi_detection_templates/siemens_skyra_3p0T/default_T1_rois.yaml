@@ -1,0 +1,69 @@
+t1_roi_1:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [129, 76, 73]
+
+t1_roi_2:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [159,  86, 73]
+
+t1_roi_3:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [177, 112, 72]
+
+t1_roi_4:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [177, 142, 72]
+
+t1_roi_5:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [160, 170, 72]
+
+t1_roi_6:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [129, 180, 72]
+
+t1_roi_7:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [98, 169, 72]
+
+t1_roi_8:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [81, 144, 72]
+
+t1_roi_9:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [78, 113, 72]
+
+t1_roi_10:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [98,  86, 72]
+
+t1_roi_11:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [148, 107, 72]
+
+t1_roi_12:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [149, 149, 72]
+
+t1_roi_13:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [108, 149, 72]
+
+t1_roi_14:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [108, 108, 72]

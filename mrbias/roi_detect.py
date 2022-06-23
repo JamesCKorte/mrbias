@@ -118,7 +118,7 @@ def main():
 
 class ROITemplate(object):
     def __init__(self, template_dir,
-                 dcm_subdir="DICOM",
+                 dcm_subdir="dicom",
                  t1_rois_file="default_T1_rois.yaml",
                  t2_rois_file="default_T2_rois.yaml"):
         dcm_dir = os.path.join(template_dir, dcm_subdir)

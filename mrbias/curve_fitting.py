@@ -1495,7 +1495,7 @@ class T1VIRCurveFitAbstract4Param(CurveFitAbstract):
         # n = noise floor
         # T1 = T1 relaxation time
         TR = self.repetition_time
-        return np.absolute(M0*(1 + (1 - Finv)*np.exp(-TR/T1) - Finv*np.exp(-TI/T1))) + n
+        return np.absolute(M0*(1 + (Finv-1)*np.exp(-TR/T1) - Finv*np.exp(-TI/T1))) + n
 
     def get_symbol_of_interest(self):
         return 'T1'

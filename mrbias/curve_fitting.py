@@ -20,8 +20,9 @@ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY
 Change Log:
 --------------------------------------------------------------------------------
   21-June-2021  : (Zachary Chin, James Korte) : Initial code from masters project
-02-August-2021  :               (James Korte) : Updated for MR-BIAS code v0.0
-  23-June-2022  :               (James Korte) : GitHub Release   MR-BIAS v1.0
+02-August-2021  :               (James Korte) : Updated for           MR-BIAS code v0.0
+  23-June-2022  :               (James Korte) : GitHub Release        MR-BIAS v1.0
+   16-Jan-2023  :               (James Korte) : Goodness of fit added MR-BIAS v1.0.1
 """
 
 import os
@@ -83,6 +84,12 @@ OPTI_OPT_STR_MAP = {OptiOptions.SCIPY: "scipy",
                     OptiOptions.LMFIT: "lmfit"}
 OPTI_SETTING_STR_ENUM_MAP = {"scipy": OptiOptions.SCIPY,
                              "lmfit": OptiOptions.LMFIT}
+
+GOODNESS_OF_FIT_PARAMS = ['chisqr', 'redchi', 'aic', 'bic'];
+GOODNESS_OF_FIT_DESC_DICT = {'chisqr': "Chi-square statistic",
+                             'redchi': "Reduced Chi-square statistic",
+                             'aic':    "Akaike Information Criterion statistic",
+                             'bic':    "Bayesian Information Criterion statistic"}
 
 def main():
 
@@ -224,6 +231,7 @@ class CurveFitROI(imset.ImageSetROI):
         # same shape as voxel data array (unless the curve fit is to an average ROI signal)
         self.voxel_fit_param_array_dict = {}
         self.voxel_fit_err_param_array_dict = {}
+        self.voxel_fit_goodness_array_dict = {}
         # exclusion/inclusion list (include all as default)
         n_vox, n_meas = self.voxel_data_array.shape
         self.include_vector = np.ones((n_meas), dtype=int)
@@ -421,6 +429,11 @@ class CurveFitROI(imset.ImageSetROI):
                                                     "(not %s)" % (type(vox_err_data_dict))
         self.voxel_fit_err_param_array_dict = vox_err_data_dict
 
+    def set_voxel_fit_goodness_data(self, vox_gfit_data_dict):
+        assert isinstance(vox_gfit_data_dict, dict), "CurveFitROI::set_voxel_fit_goodness_data() expects datatype 'dict' " \
+                                                     "(not %s)" % (type(vox_err_data_dict))
+        self.voxel_fit_goodness_array_dict = vox_gfit_data_dict
+
     def has_been_fit(self):
         has_been_fit = True
         for param_name, param_fit_vec in self.voxel_fit_param_array_dict.items():
@@ -508,6 +521,8 @@ class CurveFitROI(imset.ImageSetROI):
         col_names = ["PhantomMake", "PhantomModel", "PhantomSN", "PhantomTemp",
                      "ScannerMake", "ScannerModel", "ScannerSN", "FieldStrength",
                      "ExperimentDate", "ExperimentTime"]
+        for gfit_param in GOODNESS_OF_FIT_PARAMS:
+            col_names.append(gfit_param)
         return col_names
 
     def add_fit_summary_to_df(self, df, cf_model, include_all=False):
@@ -560,6 +575,10 @@ class CurveFitROI(imset.ImageSetROI):
             data_list.append(im_set.date)
             data_list.append(im_set.time)
             col_names = col_names + self.get_fit_summary_dataframe_column_names_suppliment(cf_model)
+            # goodness of fit parameters
+            for gfit_param in GOODNESS_OF_FIT_PARAMS:
+                mean_val = np.nanmean(self.voxel_fit_goodness_array_dict[gfit_param])
+                data_list.append(mean_val)
         # create the ROI dataframe and append it to the passed dataframe
         df_roi = pd.DataFrame([data_list], columns=col_names)
         return df.append(df_roi, ignore_index=True)
@@ -815,6 +834,10 @@ class CurveFitAbstract(ABC):
             for fit_param in ord_param_names:
                 voxel_fit_param_array_dict[fit_param] = []
                 voxel_fit_param_err_array_dict[fit_param] = []
+            # create datatstructes to store the goodness of fit parameters
+            voxel_fit_goodness_array_dict = {}
+            for gfit_param in GOODNESS_OF_FIT_PARAMS:
+                voxel_fit_goodness_array_dict[gfit_param] = []
             # loop over all the voxels/signals in a ROI
             for vox_dx in range(n_cf_vox):
                 # mu.log("CurveFit(%s)::model_fit_roi_data():         voxel [%d/%d]"
@@ -887,6 +910,10 @@ class CurveFitAbstract(ABC):
                                 for p_name, opti_param, opti_err in zip(ord_param_names, popt, perr):
                                     voxel_fit_param_array_dict[p_name].append(opti_param)
                                     voxel_fit_param_err_array_dict[p_name].append(opti_err)
+
+                                # store the goodness of fit parameters
+                                for gfit_param in GOODNESS_OF_FIT_PARAMS:
+                                    voxel_fit_goodness_array_dict[gfit_param].append(getattr(result, gfit_param))
                             else:
                                 mu.log("CurveFit(%s)::model_fit_roi_data(): number of model parameters (%d) should not "
                                        "exceed the number of measurement samples (%d)" %
@@ -909,6 +936,7 @@ class CurveFitAbstract(ABC):
             # store the fit data in the curvefitROI
             cf_roi.set_voxel_fit_data(voxel_fit_param_array_dict)
             cf_roi.set_voxel_fit_err_data(voxel_fit_param_err_array_dict)
+            cf_roi.set_voxel_fit_goodness_data(voxel_fit_goodness_array_dict)
 
     def get_voxel_dataframe(self):
         # check ROI data exists
@@ -1062,12 +1090,15 @@ class CurveFitAbstract(ABC):
 
 
             c.setFont(pdf.font_name, pdf.small_font_size)  # set to a fixed width font
-            df = self.get_summary_dataframe(include_all=False)
+            df = self.get_summary_dataframe(include_all=True)
             header_str, col_names, row_fmt_str = self.__get_summary_dataframe_fmt()
             table_width = len(header_str)
 
+            # -------------------------------------------------------------
+            # TABLE WITH THE CURVE FIT SUMMARY
+            # -------------------------------------------------------------
             # header
-            off_dx = 6
+            off_dx = 3.5
             c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - off_dx * pdf.small_line_width,
                          "=" * table_width)
             c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - (off_dx + 1) * pdf.small_line_width, header_str)
@@ -1089,8 +1120,15 @@ class CurveFitAbstract(ABC):
                          "=" * table_width)
 
             s_dx = line_dx + off_dx + 8
+
+            # -------------------------------------------------------------
+            # TABLE WITH EQUATION DETAILS
+            # -------------------------------------------------------------
             # write the model equation and a list of parameters
             off_dx = 0
+            c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - pdf.small_line_width * (s_dx + off_dx),
+                         "SIGNAL EQUATION:")
+            off_dx += 2
             for eqn_line in self.get_model_eqn_strs():
                 c.drawString(pdf.left_margin*2, pdf.page_height - pdf.top_margin - pdf.small_line_width * (s_dx + off_dx), eqn_line)
                 off_dx = off_dx + 1
@@ -1107,7 +1145,45 @@ class CurveFitAbstract(ABC):
                              "| %11s | %-59s | %15s | %15s  | %15s  |" % (p_name, descr, init_v, min_v, max_v))
                 off_dx = off_dx + 1
             c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - pdf.small_line_width * (s_dx + off_dx), "-" * table_width)
+            s_dx += off_dx + 6
 
+            # -------------------------------------------------------------
+            # TABLE WITH GOODNESS OF FIT
+            # -------------------------------------------------------------
+            # build the header
+            off_dx = 0
+            c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - pdf.small_line_width * (s_dx + off_dx),
+                         "GOODNESS OF FIT:")
+            off_dx += 2
+            header_str = "| ROI_DX | ROI LABEL |"
+            row_fmt_str = "| %6d | %9s |"
+            for gfit_param in GOODNESS_OF_FIT_PARAMS:
+                header_str += " %15s |" % gfit_param
+                row_fmt_str += " %15s |"
+            table_width = len(header_str)
+            c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - pdf.small_line_width * (s_dx + off_dx), "-" * table_width)
+            c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - pdf.small_line_width * (s_dx + off_dx + 1), header_str)
+            c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - pdf.small_line_width * (s_dx + off_dx + 2), "-" * table_width)
+            off_dx = off_dx + 3
+
+            # table content
+            for line_dx, (idx, r) in enumerate(df.iterrows()):
+                val_list = [r.RoiIndex, r.RoiLabel]
+                for name in GOODNESS_OF_FIT_PARAMS:
+                    val_list.append("%8.7f" % r[name])
+                c.drawString(pdf.left_margin,
+                             pdf.page_height - pdf.top_margin - pdf.small_line_width * (s_dx + line_dx + off_dx),
+                             row_fmt_str % tuple(val_list))
+            # final borderline
+            c.drawString(pdf.left_margin,
+                         pdf.page_height - pdf.top_margin - pdf.small_line_width * (s_dx + line_dx + off_dx + 1),
+                         "=" * table_width)
+            s_dx += line_dx + off_dx + 2
+            off_dx=0.5
+            for name in GOODNESS_OF_FIT_PARAMS:
+                c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - pdf.small_line_width * (s_dx + off_dx),
+                             "%15s : %s" % (name, GOODNESS_OF_FIT_DESC_DICT[name]))
+                off_dx += 1
 
             c.showPage()  # new page
 

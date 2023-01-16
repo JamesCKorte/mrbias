@@ -19,8 +19,9 @@ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY
 --------------------------------------------------------------------------------
 Change Log:
 --------------------------------------------------------------------------------
-02-August-2021  :               (James Korte) : Initial code for MR-BIAS v0.0
-  23-June-2022  :               (James Korte) : GitHub Release   MR-BIAS v1.0
+02-August-2021  :               (James Korte) : Initial code for      MR-BIAS v0.0.0
+  23-June-2022  :               (James Korte) : GitHub Release        MR-BIAS v1.0.0
+   16-Jan-2023  :               (James Korte) : Goodness of fit added MR-BIAS v1.0.1
 """
 
 import re
@@ -44,8 +45,8 @@ import PIL
 import io
 
 
-MRBIAS_VERSION_NUMBER = "1.0.0"
-MRBIAS_VERSION_DATE   = "13th June 2022"
+MRBIAS_VERSION_NUMBER = "1.0.1"
+MRBIAS_VERSION_DATE   = "16th January 2023"
 MRBIAS_URL            = "http://github.com/JamesCKorte/mrbias"
 MRBIAS_DOI_URL        = "http://MRBIAS_DOI_URL_TO_BE_DEFINED"
 

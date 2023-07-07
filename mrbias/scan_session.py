@@ -48,7 +48,7 @@ if str(root) not in sys.path:
 # import required mrbias modules
 from mrbias import misc_utils as mu
 from mrbias.misc_utils import LogLevels
-from mrbias.image_sets import ImageGeometric, ImageProtonDensity, ImageSetT1VIR, ImageSetT1VFA, ImageSetT2MSE
+from mrbias.image_sets import ImageGeometric, ImageProtonDensity, ImageSetT1VIR, ImageSetT1VFA, ImageSetT2MSE, ImageSetT2Star
 
 # for pdf output
 from reportlab.lib.pagesizes import landscape
@@ -129,6 +129,8 @@ class ImageCatetory(IntEnum):
     T1_VIR = 3
     T1_VFA = 4
     T2_MSE = 5
+    T2STAR_ME = 6
+    UNKNOWN = 7
 # Category details dictionary
 IMAGE_CAT_STR_AND_DICOM_DICT = OrderedDict()
 IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.GEOMETRY_3D] = ("geom", None)
@@ -136,6 +138,8 @@ IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.PROTON_DENSITY] = ("pd", None)
 IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.T1_VIR] = ("t1_vir", ["InversionTime", "RepetitionTime"])
 IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.T1_VFA] = ("t1_vfa", ["FlipAngle", "RepetitionTime"])
 IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.T2_MSE] = ("t2_mse", None)
+IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.T2STAR_ME] = ("t2star_me", None)
+IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.UNKNOWN] = ("unknown", None)
 # Dictionary of strings for labeling of different categories (i.e dataframes entries, foldername prefixes)
 IMAGE_CAT_STR_DICT = OrderedDict()
 # Dictionary of important DICOM fields (the variable ones) for identifying sets
@@ -158,7 +162,7 @@ Helper functions to filter the MRI meta-data are implemented in this class to be
 used by each concrete sub-class (i.e. ScanSessionSiemensSkyra, ScanSessionPhillipsIngenia etc.)
 """
 class ScanSessionAbstract(ABC):
-    def __init__(self, dicom_dir):
+    def __init__(self, dicom_dir, force_geometry_imageset=None):
         assert os.path.isdir(dicom_dir), "ScanSessionAbstract::init(): " \
                                          "dicom_dir must be a valid directory : %s" % dicom_dir
         # image and imageSet lists to populate
@@ -167,6 +171,10 @@ class ScanSessionAbstract(ABC):
         self.vir_imageset_list = None
         self.vfa_imageset_list = None
         self.t2_imageset_list = None
+        self.t2star_imageset_list = None
+
+        # force the scan session to use another type of image as the geometric image for ROI detection
+        self.force_geometry_imageset = force_geometry_imageset
 
         # search the dicom directory and strip tags to populate a metadata dataframe
         self.dicom_searcher = DICOMSearch(dicom_dir)
@@ -179,17 +187,27 @@ class ScanSessionAbstract(ABC):
         # -----------------------------------------------------------------
         # label the series with a category
         # -----------------------------------------------------------------
-        self.meta_data_df["Category"] = ""
+        self.meta_data_df["Category"] = IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.UNKNOWN][0]
         category_list = IMAGE_CAT_STR_DICT.values()
         variable_interest_list = IMAGE_CAT_DICOM_TAG_DICT.values()
         series_pd_idx_category_list = [self.get_geometric_series_UIDs(),
                                        self.get_proton_density_series_UIDs(),
                                        self.get_t1_vir_series_UIDs(),
                                        self.get_t1_vfa_series_UIDs(),
-                                       self.get_t2_series_UIDs()]
+                                       self.get_t2_series_UIDs(),
+                                       self.get_t2star_series_UIDs()]
 
         for category_name, pd_index_list in zip(category_list, series_pd_idx_category_list):
-            self.meta_data_df.loc[pd_index_list, "Category"] = category_name
+            if pd_index_list is not None:
+                self.meta_data_df.loc[pd_index_list, "Category"] = category_name
+        # mark geometric images
+        self.meta_data_df["IsGeometric"] = False
+        if self.force_geometry_imageset is None:
+            geom_str = IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.GEOMETRY_3D][0]
+            self.meta_data_df.loc[self.meta_data_df["Category"] == geom_str, "IsGeometric"] = True
+        else:
+            force_cat_str = IMAGE_CAT_STR_AND_DICOM_DICT[self.force_geometry_imageset][0]
+            self.meta_data_df.loc[self.meta_data_df["Category"] == force_cat_str, "IsGeometric"] = True
 
         # -----------------------------------------------------------------
         # Match each image  to a geometry image
@@ -202,6 +220,7 @@ class ScanSessionAbstract(ABC):
         # - group the image sets together and label numerically (i.e. geometry_0, geometry_1)
         df = self.meta_data_df.drop_duplicates(subset=["SeriesInstanceUID"])
         geo_category_name, geo_dicom_tags_of_interest = IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.GEOMETRY_3D]
+        unknown_category_name, unknown_dicom_tags_of_interest = IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.UNKNOWN]
         category_idx = 0
         for idx, r in df.iterrows():
             if r.Category == geo_category_name:
@@ -210,19 +229,6 @@ class ScanSessionAbstract(ABC):
                 self.meta_data_df.loc[
                     self.meta_data_df["SeriesInstanceUID"].isin([r.SeriesInstanceUID]), "ImageSet"] = set_name
                 category_idx = category_idx + 1
-        # --------------------------------------------------------
-        # - loop over the image in acquisition order and link with the last geom image taken
-        df = self.meta_data_df.drop_duplicates(subset=["SeriesInstanceUID"])
-        current_geom = None
-        for idx, r in df.iterrows():
-            if r.Category == geo_category_name:
-                current_geom = r.ImageSet
-            else:
-                if current_geom is not None:
-                    # apply the reference geometry link to the main dataframe
-                    self.meta_data_df.loc[
-                        self.meta_data_df["SeriesInstanceUID"].isin([r.SeriesInstanceUID]),
-                        "ReferenceGeometryImage"] = current_geom
 
         # -----------------------------------------------------------------
         # split the categories into sets
@@ -234,7 +240,7 @@ class ScanSessionAbstract(ABC):
         df = df.drop_duplicates(subset=["SeriesInstanceUID"])
         for category_name, variables_of_interest in zip(category_list, variable_interest_list):
             # skip geometry images as they have already been labeled
-            if not (category_name == geo_category_name):
+            if (not (category_name == geo_category_name)) and (not (category_name == unknown_category_name)):
                 # iterate over the rows of the ordered dataframe
                 # compare the category variable of interest (i.e. flip ange in T1_VFA) & the reference geometry
                 # if the current row is a duplicate / exists in the current group then create a new group
@@ -253,7 +259,7 @@ class ScanSessionAbstract(ABC):
                             # Duplicates based on the reference geometry and
                             # variables of interest (flip angle, inversion time etc.)
                             # build the key
-                            match_list = [r.ReferenceGeometryImage] # this is a str
+                            match_list = []
                             for v in variables_of_interest:
                                 match_list.append(r[v])
                             match_key = tuple(match_list)
@@ -274,6 +280,31 @@ class ScanSessionAbstract(ABC):
                 # apply the label to the main dataframe
                 for set_name, seriesUID_list in group_seriesUID_dict.items():
                     self.meta_data_df.loc[self.meta_data_df["SeriesInstanceUID"].isin(seriesUID_list), "ImageSet"] = set_name
+
+        # label the series which will be used for geometry
+        self.meta_data_df["GeomSet"] = ""
+        df = self.meta_data_df.drop_duplicates(subset=["ImageSet"])
+        # mark the images which are tagged as geometric (to handle forced override)
+        category_idx = 0
+        for idx, r in df.iterrows():
+            if r.IsGeometric:
+                set_name = mu.key_fmt % ("g", category_idx)
+                # apply the label to the main dataframe
+                self.meta_data_df.loc[
+                    self.meta_data_df["SeriesInstanceUID"].isin([r.SeriesInstanceUID]), "GeomSet"] = set_name
+                category_idx = category_idx + 1
+        # --------------------------------------------------------
+        # - loop over the image in acquisition order and link with the last geom image taken
+        df = self.meta_data_df.drop_duplicates(subset=["SeriesInstanceUID"])
+        geom_options = pd.unique(df["GeomSet"]).tolist()
+        geom_options.remove('')
+        if len(geom_options):
+            current_geom = geom_options[0]
+            for idx, r in df.iterrows():
+                if r.IsGeometric and (r.GeomSet != ''):
+                    current_geom = r.GeomSet
+                # apply the reference geometry link to the main dataframe
+                self.meta_data_df.loc[self.meta_data_df["SeriesInstanceUID"].isin([r.SeriesInstanceUID]), "ReferenceGeometryImage"] = current_geom
 
         # output the categorisation, set grouping & reference images
         self.log_meta_dataframe()
@@ -296,6 +327,9 @@ class ScanSessionAbstract(ABC):
     @abstractmethod
     def get_t2_series_UIDs(self):
         return None
+    @abstractmethod
+    def get_t2star_series_UIDs(self):
+        return None
 
     # output the categorisation, set grouping & reference images (via the log)
     def log_meta_dataframe(self):
@@ -303,10 +337,10 @@ class ScanSessionAbstract(ABC):
         df['Category'].replace('', np.nan, inplace=True)
         df.dropna(subset=['Category'], inplace=True)
         df = df.drop_duplicates(subset=["SeriesInstanceUID"])
-        table_width = 170
+        table_width = 182
         mu.log("=" * table_width, LogLevels.LOG_INFO)
         mu.log(
-            "| DATE    | TIME    | DESCRIPTION                    | CATEGORY      | IMAGE SET     | REF GEOM.     | SERIES_UID                                                        |",
+            "| DATE    | TIME    | DESCRIPTION                    | CATEGORY      | IMAGE SET     | GEOM SET  | REF GEOM.     | SERIES_UID                                                        |",
             LogLevels.LOG_INFO)
         mu.log("=" * table_width, LogLevels.LOG_INFO)
         cur_image_set = ""
@@ -314,9 +348,9 @@ class ScanSessionAbstract(ABC):
             if r.ImageSet != cur_image_set:
                 mu.log("-" * table_width, LogLevels.LOG_INFO)
                 cur_image_set = r.ImageSet
-            mu.log("| %s | %6s | %30s | %13s | %13s | %13s | %65s |" %
+            mu.log("| %s | %6s | %30s | %13s | %13s | %9s | %13s | %65s |" %
                    (r.SeriesDate, str(r.SeriesTime).split(".")[0], r.SeriesDescription,
-                    r.Category, r.ImageSet, r.ReferenceGeometryImage, r.SeriesInstanceUID),
+                    r.Category, r.ImageSet, r.GeomSet, r.ReferenceGeometryImage, r.SeriesInstanceUID),
                    LogLevels.LOG_INFO)
         mu.log("=" * table_width, LogLevels.LOG_INFO)
 
@@ -326,7 +360,7 @@ class ScanSessionAbstract(ABC):
         df['Category'].replace('', np.nan, inplace=True)
         df.dropna(subset=['Category'], inplace=True)
         df = df.drop_duplicates(subset=["SeriesInstanceUID"])
-        table_width = 170
+        table_width = 179
         pdf = mu.PDFSettings()
         c.setFont(pdf.font_name, pdf.small_font_size)  # set to a fixed width font
         c.drawString(pdf.left_margin + pdf.page_width/3.,
@@ -335,7 +369,7 @@ class ScanSessionAbstract(ABC):
         c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - pdf.small_line_width,
                      "=" * table_width)
         c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - 2*pdf.small_line_width,
-                     "| DATE    | TIME    | DESCRIPTION                    | CATEGORY      | IMAGE SET     | REF GEOM.     | SERIES_UID                                                        |")
+                     "| DATE    | TIME    | DESCRIPTION                    | CATEGORY      | IMAGE SET     | GEOM SET  | REF GEOM. | SERIES_UID                                                        |")
         c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - 3*pdf.small_line_width,
                      "=" * table_width)
         cur_image_set = ""
@@ -347,11 +381,14 @@ class ScanSessionAbstract(ABC):
                              "-" * table_width)
                 line_offset = line_offset + 1
                 cur_image_set = r.ImageSet
+            series_descrip = r.SeriesDescription
+            if len(series_descrip) > 30:
+                series_descrip = series_descrip[0:27] + "..."
             c.drawString(pdf.left_margin,
                          pdf.page_height - pdf.top_margin - pdf.small_line_width*(line_dx + 4 + line_offset),
-                         "| %s | %6s | %30s | %13s | %13s | %13s | %65s |" %
-                         (r.SeriesDate, str(r.SeriesTime).split(".")[0], r.SeriesDescription,
-                          r.Category, r.ImageSet, r.ReferenceGeometryImage, r.SeriesInstanceUID))
+                         "| %s | %6s | %30s | %13s | %13s | %9s | %9s | %65s |" %
+                         (r.SeriesDate, str(r.SeriesTime).split(".")[0], series_descrip,
+                          r.Category, r.ImageSet, r.GeomSet, r.ReferenceGeometryImage, r.SeriesInstanceUID))
         c.drawString(pdf.left_margin,
                      pdf.page_height - pdf.top_margin - pdf.small_line_width*(line_dx + 5 + line_offset),
                      "=" * table_width)
@@ -361,18 +398,31 @@ class ScanSessionAbstract(ABC):
         if self.geom_image_list is None:
             mu.log("ScanSessionAbstract::get_geometric_images(): "
                    "loading geometric images from disk...", LogLevels.LOG_INFO)
-            imageset_data_dict = self.__get_imageset_data_from_df(ImageCatetory.GEOMETRY_3D)
+            df = self.meta_data_df.drop_duplicates(subset=["GeomSet"])
+            geom_options = pd.unique(df["GeomSet"]).tolist()
+            geom_options.remove('')
+            geomset_series_uid_list = df[df["GeomSet"].isin(geom_options)].SeriesInstanceUID
             geom_image_list = []
-            for imageset_name, (image_and_metadata_list, ref_geom_image) in imageset_data_dict.items():
-                geo_images, metadata_list, other_list = zip(*image_and_metadata_list)
-                series_instance_uid = other_list[0]["SeriesInstanceUID"]
-                bits_allocated = other_list[0]["BitsAllocated"]
-                bits_stored = other_list[0]["BitsStored"]
-                rescale_slope = other_list[0]["RescaleSlope"]
-                rescale_intercept = other_list[0]["RescaleIntercept"]
-                assert len(geo_images) == 1, "ScanSessionAbstract::get_geometric_images() -there should only be one geometry image in each set, found %d" % len(geo_images)
-                geom_image_list.append(ImageGeometric(imageset_name,
-                                                      geo_images[0],
+            for series_instance_uid, geoset_label in zip(geomset_series_uid_list, geom_options):
+                image_set_df = self.meta_data_df[self.meta_data_df.SeriesInstanceUID == series_instance_uid]
+                set_series_uids = image_set_df.drop_duplicates(subset=["SeriesInstanceUID"]).SeriesInstanceUID
+                # get the datatype details
+                bits_allocated = image_set_df.drop_duplicates(subset=["BitsAllocated"]).BitsAllocated.iloc[0]
+                bits_stored = image_set_df.drop_duplicates(subset=["BitsStored"]).BitsStored.iloc[0]
+                rescale_slope = image_set_df.drop_duplicates(subset=["RescaleSlope"]).RescaleSlope.iloc[0]
+                rescale_intercept = image_set_df.drop_duplicates(subset=["RescaleIntercept"]).RescaleIntercept.iloc[0]
+                # get all the slices
+                files_sorting = []
+                for index, row in image_set_df.iterrows():
+                    files_sorting.append((row["ImageFilePath"], row["SliceLocation"]))
+                # sort the slices by slice location before reading by sitk
+                files_sorting.sort(key=lambda x: x[1])
+                files_sorted = [x[0] for x in files_sorting]
+                im = self.__load_image_from_filelist(files_sorted, series_instance_uid,
+                                                     rescale_slope, rescale_intercept,
+                                                     row.SeriesDescription)
+                geom_image_list.append(ImageGeometric(geoset_label,
+                                                      im,
                                                       series_instance_uid,
                                                       bits_allocated, bits_stored,
                                                       rescale_slope, rescale_intercept))
@@ -408,160 +458,194 @@ class ScanSessionAbstract(ABC):
 
     def get_t1_vir_image_sets(self):
         if self.vir_imageset_list is None:
-            # acquisition timestamp
-            study_date, study_time = self.get_study_date_time()
             # construct the T1 imagesets
             mu.log("ScanSessionAbstract::get_t1_vir_image_sets(): "
                    "loading T1 VIR image sets from disk...", LogLevels.LOG_INFO)
             imageset_data_dict = self.__get_imageset_data_from_df(ImageCatetory.T1_VIR)
-            vir_imageset_list = []
-            for imageset_name, (image_and_metadata_list, ref_geom_image) in imageset_data_dict.items():
-                vir_images, metadata_list, other_list = zip(*image_and_metadata_list)
-                series_instance_uids = [x["SeriesInstanceUID"] for x in other_list]
-                bits_allocated = other_list[0]["BitsAllocated"]
-                bits_stored = other_list[0]["BitsStored"]
-                rescale_slope = other_list[0]["RescaleSlope"]
-                rescale_intercept = other_list[0]["RescaleIntercept"]
-                # scanner details
-                scanner_make = other_list[0]["Manufacturer"]
-                scanner_model = other_list[0]["ManufacturerModelName"]
-                scanner_sn = other_list[0]["DeviceSerialNumber"]
-                scanner_field_strength = other_list[0]["MagneticFieldStrength"]
-
-                # pull out the metadata (inversion recovery times)
-                assert len(metadata_list[0]) == 2, \
-                    "ScanSessionAbstract::get_t1_vir_image_sets() - t1(vir) should have two dicom parameters per image, found %d" % len(metadata_list[0])
-                inversion_time_list = [x[0] for x in metadata_list]
-                repetition_time_list = [x[1] for x in metadata_list]
-                # sort the images by the inversion recovery time
-                tir_time_and_image_list = [(tir, tr, im, suid) for im, tir, tr, suid in zip(vir_images, inversion_time_list, repetition_time_list, series_instance_uids)]
-                tir_time_and_image_list.sort(key=lambda x: x[0])
-                inversion_time_list, repetition_time_list, vir_images, series_instance_uids = zip(*tir_time_and_image_list)
-                # create the imageset object and append to return list
-                vir_imageset_list.append(ImageSetT1VIR(imageset_name,
-                                                       vir_images,
-                                                       inversion_time_list,
-                                                       repetition_time_list,
-                                                       ref_geom_image,
-                                                       series_instance_uids,
-                                                       bits_allocated, bits_stored,
-                                                       rescale_slope, rescale_intercept,
-                                                       scanner_make, scanner_model, scanner_sn, scanner_field_strength,
-                                                       study_date, study_time))
-            self.vir_imageset_list = vir_imageset_list
+            self.vir_imageset_list = self.__get_image_sets(imageset_data_dict, ImageCatetory.T1_VIR, n_expected_dcm_tags=2)
         return self.vir_imageset_list
 
     def get_t1_vfa_image_sets(self):
         if self.vfa_imageset_list is None:
-            # acquisition timestamp
-            study_date, study_time = self.get_study_date_time()
             # construct the T1 imagesets
             mu.log("ScanSessionAbstract::get_t1_vfa_image_sets(): "
                    "loading T1 VFA image sets from disk...", LogLevels.LOG_INFO)
             imageset_data_dict = self.__get_imageset_data_from_df(ImageCatetory.T1_VFA)
-            vfa_imageset_list = []
-            for imageset_name, (image_and_metadata_list, ref_geom_image) in imageset_data_dict.items():
-                vfa_images, metadata_list, other_list = zip(*image_and_metadata_list)
-                series_instance_uids = [x["SeriesInstanceUID"] for x in other_list]
-                bits_allocated = other_list[0]["BitsAllocated"]
-                bits_stored = other_list[0]["BitsStored"]
-                rescale_slope = other_list[0]["RescaleSlope"]
-                rescale_intercept = other_list[0]["RescaleIntercept"]
-                # scanner details
-                scanner_make = other_list[0]["Manufacturer"]
-                scanner_model = other_list[0]["ManufacturerModelName"]
-                scanner_sn = other_list[0]["DeviceSerialNumber"]
-                scanner_field_strength = other_list[0]["MagneticFieldStrength"]
-                # pull out the metadata (inversion recovery times)
-                assert len(metadata_list[0]) == 2, \
-                    "ScanSessionAbstract::get_t1_vfa_image_sets() - t1(vfa) should have two dicom parameters per image, found %d" % len(metadata_list[0])
-                flip_angle_list = [x[0] for x in metadata_list]
-                repetition_time_list = [x[1] for x in metadata_list]
-                # sort the images by the inversion recovery time
-                flip_and_image_list = [(fa, tr, im, suid) for im, fa, tr, suid in zip(vfa_images, flip_angle_list, repetition_time_list, series_instance_uids)]
-                flip_and_image_list.sort(key=lambda x: x[0])
-                flip_angle_list, repetition_time_list, vfa_images, series_instance_uids = zip(*flip_and_image_list)
-                # create the imageset object and append to return list
-                vfa_imageset_list.append(ImageSetT1VFA(imageset_name,
-                                                       vfa_images,
-                                                       flip_angle_list,
-                                                       repetition_time_list,
-                                                       ref_geom_image,
-                                                       series_instance_uids,
-                                                       bits_allocated, bits_stored,
-                                                       rescale_slope, rescale_intercept,
-                                                       scanner_make, scanner_model, scanner_sn, scanner_field_strength,
-                                                       study_date, study_time))
-            self.vfa_imageset_list = vfa_imageset_list
+            self.vfa_imageset_list = self.__get_image_sets(imageset_data_dict, ImageCatetory.T1_VFA, n_expected_dcm_tags=2)
         return self.vfa_imageset_list
 
     def get_t2_mse_image_sets(self):
         if self.t2_imageset_list is None:
-            # acquisition timestamp
-            study_date, study_time = self.get_study_date_time()
-            mu.log("ScanSession::get_t2_mse_image_sets(): "
-                   "loading T2 MSE image sets from disk...", LogLevels.LOG_INFO)
-            t2_imageset_list = []
-            geom_images = self.get_geometric_images()
-            # get image sets from the dataframe
-            category_name = IMAGE_CAT_STR_DICT[ImageCatetory.T2_MSE]
-            cat_df = self.meta_data_df[self.meta_data_df.Category == category_name]
-            imageset_names = cat_df.drop_duplicates(subset=["ImageSet"]).ImageSet
-            # loop over the T2 sets
-            for set_name in imageset_names:
-                df_t2 = cat_df[cat_df.ImageSet == set_name]
-                df_t2 = df_t2.sort_values(by=["EchoTime"])
-                # get the datatype details
-                bits_allocated = df_t2.drop_duplicates(subset=["BitsAllocated"]).BitsAllocated.iloc[0]
-                bits_stored = df_t2.drop_duplicates(subset=["BitsStored"]).BitsStored.iloc[0]
-                rescale_slope = df_t2.drop_duplicates(subset=["RescaleSlope"]).RescaleSlope.iloc[0]
-                rescale_intercept = df_t2.drop_duplicates(subset=["RescaleIntercept"]).RescaleIntercept.iloc[0]
-                # scanner details
-                scanner_make = df_t2.drop_duplicates(subset=["Manufacturer"]).Manufacturer.iloc[0]
-                scanner_model = df_t2.drop_duplicates(subset=["ManufacturerModelName"]).ManufacturerModelName.iloc[0]
-                scanner_sn = df_t2.drop_duplicates(subset=["DeviceSerialNumber"]).DeviceSerialNumber.iloc[0]
-                scanner_field_strength = df_t2.drop_duplicates(subset=["MagneticFieldStrength"]).MagneticFieldStrength.iloc[0]
-
-                image_echo_time_list = []
-                for index, row in df_t2.iterrows():
-                    # load up the image
-                    im = sitk.ReadImage(row["ImageFilePath"])
-                    # undo the scaling to get the raw values
-                    assert isinstance(rescale_slope, float) and isinstance(rescale_intercept, float), \
-                        "Scale[%s]/Intercept[%s] not floats" % (str(rescale_slope), str(rescale_intercept))
-                    if np.isnan(rescale_slope) or np.isnan(rescale_intercept):
-                        mu.log("ScanSession::get_t2_mse_image_sets(): Scale[%s]/Intercept[%s] are invalid"
-                               " setting them to [m=1.0, c=0.0]" % (str(rescale_slope), str(rescale_intercept)),
-                               LogLevels.LOG_WARNING)
-                        rescale_slope = 1.0
-                        rescale_intercept = 0.0
-                    im = self.__rescale_image_to_raw(im, rescale_slope, rescale_intercept,
-                                                     series_decript=row.SeriesDescription)
-                    image_echo_time_list.append((float(row["EchoTime"]), float(row["RepetitionTime"]),
-                                                 im,
-                                                 row["SeriesInstanceUID"]))
-                image_echo_time_list.sort(key=lambda x: x[0])
-                echo_time_list, repetition_time_list, t2_image_list, series_instance_uids = zip(*image_echo_time_list)
-                # include any associated geometry image
-                ref_geom_image = None
-                image_set_df = self.meta_data_df.drop_duplicates(subset=["ImageSet"])
-                ref_geom_label = image_set_df[image_set_df.ImageSet == set_name].ReferenceGeometryImage.iloc[0]
-                for g_im in geom_images:
-                    if g_im.get_label() == ref_geom_label:
-                        ref_geom_image = g_im
-                t2_imageset_list.append(ImageSetT2MSE(set_name,
-                                                      t2_image_list,
-                                                      echo_time_list,
-                                                      repetition_time_list,
-                                                      ref_geom_image,
-                                                      series_instance_uids,
-                                                      bits_allocated, bits_stored,
-                                                      rescale_slope, rescale_intercept,
-                                                      scanner_make, scanner_model, scanner_sn, scanner_field_strength,
-                                                      study_date, study_time))
-            self.t2_imageset_list = t2_imageset_list
+            mu.log("ScanSession::get_t2_image_sets(): "
+                   "loading T2 image sets from disk...", LogLevels.LOG_INFO)
+            self.t2_imageset_list = self.__get_echo_image_sets(ImageCatetory.T2_MSE)
         return self.t2_imageset_list
 
+    def get_t2star_image_sets(self):
+        if self.t2star_imageset_list is None:
+            mu.log("ScanSession::get_t2star_image_sets(): "
+                   "loading T2star image sets from disk...", LogLevels.LOG_INFO)
+            self.t2star_imageset_list = self.__get_echo_image_sets(ImageCatetory.T2STAR_ME)
+        return self.t2star_imageset_list
+
+
+    def __get_image_sets(self, imageset_data_dict, category, n_expected_dcm_tags):
+        # acquisition timestamp
+        study_date, study_time = self.get_study_date_time()
+        imageset_list = []
+        for imageset_name, (image_and_metadata_list, ref_geom_image) in imageset_data_dict.items():
+            images, metadata_list, other_list = zip(*image_and_metadata_list)
+            series_instance_uids = [x["SeriesInstanceUID"] for x in other_list]
+            bits_allocated = other_list[0]["BitsAllocated"]
+            bits_stored = other_list[0]["BitsStored"]
+            rescale_slope = other_list[0]["RescaleSlope"]
+            rescale_intercept = other_list[0]["RescaleIntercept"]
+            # scanner details
+            scanner_make = other_list[0]["Manufacturer"]
+            scanner_model = other_list[0]["ManufacturerModelName"]
+            scanner_sn = other_list[0]["DeviceSerialNumber"]
+            scanner_field_strength = other_list[0]["MagneticFieldStrength"]
+            # pull out the metadata (inversion recovery times, flip angles, echo times etc.)
+            assert len(metadata_list[0]) == n_expected_dcm_tags, \
+                "ScanSessionAbstract::__get_image_sets() - %s should have %d dicom parameters per image, found %d" % (
+                category, len(
+                    metadata_list[0]), n_expected_dcm_tags)
+            # handle the different types of image sets
+            image_set = None
+            if category == ImageCatetory.T1_VFA:
+                flip_angle_list = [x[0] for x in metadata_list]
+                repetition_time_list = [x[1] for x in metadata_list]
+                # sort the images by the inversion recovery time
+                flip_and_image_list = [(fa, tr, im, suid) for im, fa, tr, suid in
+                                       zip(images, flip_angle_list, repetition_time_list, series_instance_uids)]
+                flip_and_image_list.sort(key=lambda x: x[0])
+                flip_angle_list, repetition_time_list, images, series_instance_uids = zip(*flip_and_image_list)
+                image_set = ImageSetT1VFA(imageset_name,
+                                          images,
+                                          flip_angle_list,
+                                          repetition_time_list,
+                                          ref_geom_image,
+                                          series_instance_uids,
+                                          bits_allocated, bits_stored,
+                                          rescale_slope, rescale_intercept,
+                                          scanner_make, scanner_model, scanner_sn, scanner_field_strength,
+                                          study_date, study_time)
+            elif category == ImageCatetory.T1_VIR:
+                inversion_time_list = [x[0] for x in metadata_list]
+                repetition_time_list = [x[1] for x in metadata_list]
+                # sort the images by the inversion recovery time
+                tir_time_and_image_list = [(tir, tr, im, suid) for im, tir, tr, suid in
+                                           zip(images, inversion_time_list, repetition_time_list,
+                                               series_instance_uids)]
+                tir_time_and_image_list.sort(key=lambda x: x[0])
+                inversion_time_list, repetition_time_list, images, series_instance_uids = zip(
+                    *tir_time_and_image_list)
+                # create the imageset object and append to return list
+                image_set = ImageSetT1VIR(imageset_name,
+                                          images,
+                                          inversion_time_list,
+                                          repetition_time_list,
+                                          ref_geom_image,
+                                          series_instance_uids,
+                                          bits_allocated, bits_stored,
+                                          rescale_slope, rescale_intercept,
+                                          scanner_make, scanner_model, scanner_sn, scanner_field_strength,
+                                          study_date, study_time)
+            else:
+                assert False, "ScanSessionAbstract::__get_image_sets() is only designed to be called by T1-VFA and T1-VIR models, not (%s) imageset category" % category
+            # create the imageset object and append to return list
+            if image_set is not None:
+                imageset_list.append(image_set)
+        return imageset_list
+
+    def __get_echo_image_sets(self, category):
+        imageset_list = []
+        # acquisition timestamp
+        study_date, study_time = self.get_study_date_time()
+        # geometric images for linking
+        geom_images = self.get_geometric_images()
+        # get image sets from the dataframe
+        category_name = IMAGE_CAT_STR_DICT[category]
+        cat_df = self.meta_data_df[self.meta_data_df.Category == category_name]
+        imageset_names = cat_df.drop_duplicates(subset=["ImageSet"]).ImageSet
+        # loop over the T2 star sets
+        for set_name in imageset_names:
+            df_t2 = cat_df[cat_df.ImageSet == set_name]
+            df_t2 = df_t2.sort_values(by=["EchoTime"])
+            # get the datatype details
+            bits_allocated = df_t2.drop_duplicates(subset=["BitsAllocated"]).BitsAllocated.iloc[0]
+            bits_stored = df_t2.drop_duplicates(subset=["BitsStored"]).BitsStored.iloc[0]
+            rescale_slope = df_t2.drop_duplicates(subset=["RescaleSlope"]).RescaleSlope.iloc[0]
+            rescale_intercept = df_t2.drop_duplicates(subset=["RescaleIntercept"]).RescaleIntercept.iloc[0]
+            # scanner details
+            scanner_make = df_t2.drop_duplicates(subset=["Manufacturer"]).Manufacturer.iloc[0]
+            scanner_model = df_t2.drop_duplicates(subset=["ManufacturerModelName"]).ManufacturerModelName.iloc[0]
+            scanner_sn = df_t2.drop_duplicates(subset=["DeviceSerialNumber"]).DeviceSerialNumber.iloc[0]
+            scanner_field_strength = df_t2.drop_duplicates(subset=["MagneticFieldStrength"]).MagneticFieldStrength.iloc[0]
+
+            # sort the echos into groups (to handle multiple slices)
+            image_echo_time_list = []
+            for index, row in df_t2.iterrows():
+                image_echo_time_list.append((float(row["EchoTime"]), float(row["RepetitionTime"]),
+                                             row["SeriesInstanceUID"], row["ImageFilePath"], row["SliceLocation"]))
+            image_echo_time_list.sort(key=lambda x: x[0])
+            echo_time_list, repetition_time_list, series_instance_uids, image_filepaths, slice_locations = zip(
+                *image_echo_time_list)
+            # load up each of the echo images
+            unique_echo_list = pd.unique(echo_time_list)
+            df_echo_images = pd.DataFrame(
+                columns=["EchoTime", "RepetitionTime", "SeriesUID", "ImageFilePath", "SliceLocation"],
+                data=image_echo_time_list)
+            image_list = []
+            for echo_time in unique_echo_list:
+                series_uid = df_echo_images[df_echo_images["EchoTime"] == echo_time].SeriesUID.values[0]
+                image_file_path_list = df_echo_images[df_echo_images["EchoTime"] == echo_time].ImageFilePath
+                image_slice_location_list = df_echo_images[df_echo_images["EchoTime"] == echo_time].SliceLocation
+                files_sorting = [(fp, slice_loc) for fp, slice_loc in
+                                 zip(image_file_path_list, image_slice_location_list)]
+                # sort the slices by slice location before reading by sitk
+                files_sorting.sort(key=lambda x: x[1])
+                files_sorted = [x[0] for x in files_sorting]
+
+                im = self.__load_image_from_filelist(files_sorted, series_uid,
+                                                     rescale_slope, rescale_intercept)
+                image_list.append(im)
+
+            # include any associated geometry image
+            ref_geom_image = None
+            image_set_df = self.meta_data_df.drop_duplicates(subset=["ImageSet"])
+            ref_geom_label = image_set_df[image_set_df.ImageSet == set_name].ReferenceGeometryImage.iloc[0]
+            for g_im in geom_images:
+                if g_im.get_label() == ref_geom_label:
+                    ref_geom_image = g_im
+            # create the appropriate ImageSet based on category
+            if category == ImageCatetory.T2_MSE:
+                imageset_list.append(ImageSetT2MSE(set_name,
+                                                   image_list,
+                                                   unique_echo_list,
+                                                   repetition_time_list,
+                                                   ref_geom_image,
+                                                   series_instance_uids,
+                                                   bits_allocated, bits_stored,
+                                                   rescale_slope, rescale_intercept,
+                                                   scanner_make, scanner_model, scanner_sn,
+                                                   scanner_field_strength,
+                                                   study_date, study_time))
+            elif category == ImageCatetory.T2STAR_ME:
+                imageset_list.append(ImageSetT2Star(set_name,
+                                                    image_list,
+                                                    unique_echo_list,
+                                                    repetition_time_list,
+                                                    ref_geom_image,
+                                                    series_instance_uids,
+                                                    bits_allocated, bits_stored,
+                                                    rescale_slope, rescale_intercept,
+                                                    scanner_make, scanner_model, scanner_sn,
+                                                    scanner_field_strength,
+                                                    study_date, study_time))
+            else:
+                assert False, "ScanSessionAbstract::__get_echo_image_sets() is only designed to be called by T1-VFA and T1-VIR models, not (%s) imageset category" % category
+        return imageset_list
 
     def get_spin_echo_series(self, df=None):
         if df is None:
@@ -595,7 +679,6 @@ class ScanSessionAbstract(ABC):
         df.dropna(subset=['Category'], inplace=True)
         df = df.drop_duplicates(subset=["SeriesInstanceUID"])
         return df.StudyDate.iloc[0], df.StudyTime.iloc[0]
-
 
     # general helper function to get image sets and associated metadata from the ordered/grouped metadataframe
     # and include any referenced geometric images (ImageGeometric)
@@ -640,35 +723,9 @@ class ScanSessionAbstract(ABC):
                 files_sorting.sort(key=lambda x: x[1])
                 files_sorted = [x[0] for x in files_sorting]
 
-                # Create a temp directory and symlink all of the files,
-                # then read from there.
-                im = None
-                with tempfile.TemporaryDirectory() as tmpdir_name:
-                    # Try to create symbolic links to the original files from our tmpdir
-                    try:
-                        for f in files_sorted:
-                            os.symlink(os.path.abspath(f), os.path.join(tmpdir_name, os.path.basename(f)))
-                    except:
-                        # if it fails (permissions etc.)
-                        # copy the original files to a tmpdir
-                        for f in files_sorted:
-                            shutil.copy(os.path.abspath(f), os.path.join(tmpdir_name, os.path.basename(f)))
-                    # Now get the sorted list of file names
-                    reader = sitk.ImageSeriesReader()
-                    sitk_sorted_filenames = reader.GetGDCMSeriesFileNames(tmpdir_name, series_uid)
-                    reader.SetFileNames(sitk_sorted_filenames)
-                    im = reader.Execute()
-                    # undo the scaling to get the raw values
-                    assert isinstance(rescale_slope, float) and isinstance(rescale_intercept, float), \
-                        "Scale[%s]/Intercept[%s] not floats" % (str(rescale_slope), str(rescale_intercept))
-                    if np.isnan(rescale_slope) or np.isnan(rescale_intercept):
-                        mu.log("ScanSession::__get_imageset_data_from_df(): Scale[%s]/Intercept[%s] are invalid"
-                               " setting them to [m=1.0, c=0.0]" % (str(rescale_slope), str(rescale_intercept)),
-                               LogLevels.LOG_WARNING)
-                        rescale_slope = 1.0
-                        rescale_intercept = 0.0
-                    im = self.__rescale_image_to_raw(im, rescale_slope, rescale_intercept,
-                                                     series_decript=row.SeriesDescription)
+                im = self.__load_image_from_filelist(files_sorted, series_uid,
+                                                     rescale_slope, rescale_intercept,
+                                                     row.SeriesDescription)
 
                 # group the image and metadata together
                 image_and_metadata_list.append((im,  # image
@@ -693,6 +750,40 @@ class ScanSessionAbstract(ABC):
             imageset_data_dict[set_name] = (image_and_metadata_list, ref_geom_image)
         return imageset_data_dict
 
+    def __load_image_from_filelist(self, files_sorted, series_uid,
+                                   rescale_slope, rescale_intercept,
+                                   series_descrp=None):
+        # Create a temp directory and symlink all of the files,
+        # then read from there.
+        im = None
+        with tempfile.TemporaryDirectory() as tmpdir_name:
+            # Try to create symbolic links to the original files from our tmpdir
+            try:
+                for f in files_sorted:
+                    os.symlink(os.path.abspath(f), os.path.join(tmpdir_name, os.path.basename(f)))
+            except:
+                # if it fails (permissions etc.)
+                # copy the original files to a tmpdir
+                for f in files_sorted:
+                    shutil.copy(os.path.abspath(f), os.path.join(tmpdir_name, os.path.basename(f)))
+            # Now get the sorted list of file names
+            reader = sitk.ImageSeriesReader()
+            sitk_sorted_filenames = reader.GetGDCMSeriesFileNames(tmpdir_name, series_uid)
+            reader.SetFileNames(sitk_sorted_filenames)
+            im = reader.Execute()
+            # undo the scaling to get the raw values
+            assert isinstance(rescale_slope, float) and isinstance(rescale_intercept, float), \
+                "Scale[%s]/Intercept[%s] not floats" % (str(rescale_slope), str(rescale_intercept))
+            if np.isnan(rescale_slope) or np.isnan(rescale_intercept):
+                mu.log("ScanSession::__load_image_from_filelist(): Scale[%s]/Intercept[%s] are invalid"
+                       " setting them to [m=1.0, c=0.0]" % (str(rescale_slope), str(rescale_intercept)),
+                       LogLevels.LOG_WARNING)
+                rescale_slope = 1.0
+                rescale_intercept = 0.0
+            im = self.__rescale_image_to_raw(im, rescale_slope, rescale_intercept,
+                                             series_decript=series_descrp)
+        return im
+
     def __rescale_image_to_raw(self, im, rescale_slope, rescale_intercept, series_decript=None):
         if not (np.isclose(rescale_slope, 1.0) and np.isclose(rescale_intercept, 0.0)):
             mu.log("ScanSession::__get_imageset_data_from_df(%s): rescaling image back to raw data" %
@@ -706,6 +797,28 @@ class ScanSessionAbstract(ABC):
             im_raw.SetDirection(im.GetDirection())
             return im_raw
         return im
+
+class ScanSessionTemplate(ScanSessionAbstract):
+    def __init__(self, dicom_dir):
+        super().__init__(dicom_dir)
+
+    def get_geometric_series_UIDs(self):
+        return None
+
+    def get_t1_vir_series_UIDs(self):
+        return None
+
+    def get_t1_vfa_series_UIDs(self):
+        return None
+
+    def get_t2_series_UIDs(self):
+        return None
+
+    def get_proton_density_series_UIDs(self):
+        return None
+
+    def get_t2star_series_UIDs(self):
+        return None
 
 
 class ScanSessionSiemensSkyra(ScanSessionAbstract):
@@ -751,6 +864,9 @@ class ScanSessionSiemensSkyra(ScanSessionAbstract):
         #return df_pd.drop_duplicates(subset=["SeriesInstanceUID"]).SeriesInstanceUID
         return df_pd.index
 
+    def get_t2star_series_UIDs(self):
+        return None
+
 
 
 class ScanSessionPhilipsMarlin(ScanSessionAbstract):
@@ -795,6 +911,42 @@ class ScanSessionPhilipsMarlin(ScanSessionAbstract):
         #return df_pd.drop_duplicates(subset=["SeriesInstanceUID"]).SeriesInstanceUID
         return df_pd.index
 
+    def get_t2star_series_UIDs(self):
+        return None
+
+
+class ScanSessionAucklandCAM(ScanSessionAbstract):
+    def __init__(self, dicom_dir):
+        super().__init__(dicom_dir, force_geometry_imageset=ImageCatetory.T1_VFA)
+
+    def get_geometric_series_UIDs(self):
+        return None
+
+    def get_t1_vir_series_UIDs(self):
+        return None
+
+    def get_t1_vfa_series_UIDs(self):
+        df_ge = super().get_gradient_echo_series()
+        df_ge_3D = super().get_3D_series(df_ge)
+        df_ge_3D_scanOpt = df_ge_3D[df_ge_3D["ScanOptions"].str.match(r"^PER") == True]
+        df_ge_3D_scanOpt_orig = df_ge_3D_scanOpt[
+            df_ge_3D_scanOpt["ImageType"].str.contains("'ORIGINAL'", regex=False) == True]
+        # order by flip angle
+        df_ge_3D_scanOpt_orig = df_ge_3D_scanOpt_orig.sort_values(by=["FlipAngle"])
+        return df_ge_3D_scanOpt_orig.index
+
+    def get_t2_series_UIDs(self):
+        return None
+
+    def get_proton_density_series_UIDs(self):
+        return None
+
+    def get_t2star_series_UIDs(self):
+        df_ge = super().get_gradient_echo_series()
+        df_ge_2D = super().get_2D_series(df_ge)
+        df_ge_3D_multiEcho = df_ge_2D[df_ge_2D["SequenceName"].str.match(r"^\*fl2d12") == True]
+        df_ge_3D_multiEcho_orig = df_ge_3D_multiEcho[df_ge_3D_multiEcho["ImageType"].str.contains("'ORIGINAL'", regex=False) == True]
+        return df_ge_3D_multiEcho_orig.index
 
 
 
@@ -806,7 +958,7 @@ class ScanSessionPhilipsMarlin(ScanSessionAbstract):
 # ScanningSequence : is used to determine if a spin-echo or a gradient echo sequence
 # MRAcquisitionType : is used to determine 2D/3D
 class DICOMSearch(object):
-    def __init__(self, target_dir, read_single_file=False):
+    def __init__(self, target_dir, read_single_file=False, output_csv_filename=None):
         mu.log("DICOMSearch::init(): searching target DCM dir: %s" % target_dir,
                LogLevels.LOG_INFO)
         filepaths = []
@@ -886,9 +1038,11 @@ class DICOMSearch(object):
                         if not alt_found:
                             data_row.append(None)  # if doesn't exist so data field is left blank
                             if not (tag_name in ["InversionTime", "RescaleSlope", "RescaleIntercept"]):
-                                for d in available_tags:
-                                    print("----> ", d, "  : ",  ds[d])
-                                assert False
+                                mu.log("DICOMSearch::__init__(): unable to locate dicom tag (%s) in file (%s)" %
+                                       (tag_name, filepath), LogLevels.LOG_WARNING)
+                                #     for d in available_tags:
+                                #         print("----> ", d, "  : ",  ds[d])
+                                #     assert False
                 dicom_data.append(data_row)
         # Creating the DICOM Dataframe
         df = pd.DataFrame(dicom_data,
@@ -897,9 +1051,13 @@ class DICOMSearch(object):
         #     : this converts columns that include lists get converted to strings etc.
         #     : the original abstract_scan object took a pandas CSV as input
         temp_filename = "temp.csv"
+        if output_csv_filename is not None:
+            temp_filename = output_csv_filename
         df.to_csv(temp_filename)
         self.df = pd.read_csv(temp_filename)
-        os.remove(temp_filename)
+        # if not output file is specified then remove the temporary file
+        if output_csv_filename is None:
+            os.remove(temp_filename)
 
     def get_df(self):
         return self.df

@@ -594,3 +594,52 @@ class ImageSetT2MSE(ImageSetAbstract):
         mu.log("ImageSetT2MSE[%s]::update_ROI_mask() : resampled mask values [%d, %d]" %
                (self.get_set_label(), np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
         self.set_T2_roi_mask(resampled_mask)
+
+
+class ImageSetT2Star(ImageSetAbstract):
+    def __init__(self,
+                 set_label,
+                 sitk_im_list,
+                 echo_time_list,
+                 repetition_time_list,
+                 geometry_image,
+                 series_instance_UIDs=None,
+                 bits_allocated=None,
+                 bits_stored=None,
+                 rescale_slope=None,
+                 rescale_intercept=None,
+                 scanner_make=None, scanner_model=None, scanner_serial_number=None, scanner_field_strength=None,
+                 study_date=None, study_time=None):
+        super().__init__(set_label=set_label,
+                         sitk_im_list=sitk_im_list,
+                         measurement_variable_list=echo_time_list,
+                         measurement_variable_name="echo time",
+                         measurement_variable_units="ms",
+                         repetition_time_list=repetition_time_list,
+                         geometry_image=geometry_image,
+                         series_instance_UIDs=series_instance_UIDs,
+                         bits_allocated=bits_allocated, bits_stored=bits_stored,
+                         rescale_slope=rescale_slope, rescale_intercept=rescale_intercept,
+                         scanner_make=scanner_make, scanner_model=scanner_model, scanner_serial_number=scanner_serial_number,
+                         scanner_field_strength=scanner_field_strength, date_acquired=study_date, time_acquired=study_time)
+    def get_echo_times(self):
+        return super().get_measurement_variables()
+    def set_T2_roi_mask(self, roi_sitk_image):
+        super().set_roi_image(roi_sitk_image)
+    def update_ROI_mask(self):
+        if self.geometry_image is None:
+            mu.log("ImageSetT2Star::update_ROI_mask(): no geometry image set", LogLevels.LOG_WARNING)
+            return None
+        if not (len(self.image_list) > 0):
+            mu.log("ImageSetT2Star::update_ROI_mask(): no images in set", LogLevels.LOG_WARNING)
+            return None
+        mask_arr = sitk.GetArrayFromImage(self.geometry_image.get_T2_mask())
+        mu.log("ImageSetT2Star[%s]::update_ROI_mask() : orig mask values [%d, %d]" %
+               (self.get_set_label(), np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
+        resampled_mask = sitk.Resample(self.geometry_image.get_T2_mask(),
+                                       self.image_list[0],
+                                       sitk.Euler3DTransform(), sitk.sitkNearestNeighbor)
+        mask_arr = sitk.GetArrayFromImage(resampled_mask)
+        mu.log("ImageSetT2Star[%s]::update_ROI_mask() : resampled mask values [%d, %d]" %
+               (self.get_set_label(), np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
+        self.set_T2_roi_mask(resampled_mask)

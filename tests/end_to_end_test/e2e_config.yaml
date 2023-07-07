@@ -1,0 +1,70 @@
+# ====================================================================================================================
+# Global settings
+# ====================================================================================================================
+global:
+  output_directory: "." # use forward slashes in filepath
+  overwrite_existing_output: True
+
+# ====================================================================================================================
+# PHANTOM/EXPERIMENT configuration
+# ====================================================================================================================
+phantom_experiment:
+  phantom_manufacturer: "caliber_mri" # options include [caliber_mri]
+  phantom_type: "system_phantom"      # options include [system_phantom]
+  phantom_serial_number: "130-0093"   # for CalibreMRI phantoms SN has format XXX-XXXX
+  field_strength_tesla: 3.0           # options include [1.5, 3.0]
+  temperature_celsius: 20.0           # will match to closest experimental reference data
+
+
+# ====================================================================================================================
+# DICOM sorting options
+# ====================================================================================================================
+dicom_sorting:
+  scan_protocol : "siemens_skyra_3p0T"   # options include [siemens_skyra_3p0T, philips_marlin_1p5T]
+  scan_protocol_options: ["siemens_skyra_3p0T", "philips_marlin_1p5T"]
+  save_sorted_images: False # future feature (not implemented)
+
+
+# ====================================================================================================================
+# ROI detection options
+# ====================================================================================================================
+roi_detection:
+  template_name: "siemens_skyra_3p0T"   # options include [siemens_skyra_3p0T]
+  save_mask_images: False # future feature (not implemented)
+
+
+# ====================================================================================================================
+# Curve fitting options
+# ====================================================================================================================
+curve_fitting:
+  # -----------------------------------------------------------------------------------------------------------------
+  # PRE-PROCESSING
+  # -----------------------------------------------------------------------------------------------------------------
+  averaging: "voxels_in_ROI"              # options include [none, voxels_in_ROI]
+  normalisation: "voxel_max"              # options include [none, voxel_max, roi_max]
+  exclude: "clipped"                      # options include [none, clipped]
+  percent_clipped_threshold: 100           # [0, 100] for parital clipping, the number of unclipped/clean voxels required across all measurements in the ROI
+  # -----------------------------------------------------------------------------------------------------------------
+  # MODEL OPTIONS
+  # -----------------------------------------------------------------------------------------------------------------
+  t1_vfa_options:
+    fitting_models: ["2_param"]             #
+    angle_exclusion_list: [15]              # angles to exclude
+    angle_exclusion_label: "no15deg"        # a label to mark the exclusion scenario (may want to run multiple)
+    use_2D_roi: False                       #  to use a 3D ROI or a central 2D slice ROI
+  t1_vir_options:
+    fitting_models: ["4_param"]                # options include: 2_param (abs(a * (1 - 2 * np.exp(-IR/t1)))), # "2_param", "3_param",
+                                               #                : 3_param (abs(a * (1 - b * np.exp(-IR/t1))))
+    inversion_exclusion_list: [1500]           # inversion times to exclude
+    inversion_exclusion_label: "no1500ms"      # a label to mark the exclusion scenario (may want to run multiple)
+  t2_mse_options:
+    fitting_models: ["3_param"]            # options include: 3_param (a * np.exp(-t/t2) + b)
+    echo_exclusion_list: [10]              # echo times to exclude
+    echo_exclusion_label: "no10ms"         # a label to mark the exclusion scenario (may want to run multiple)
+  # -----------------------------------------------------------------------------------------------------------------
+  # OUTPUT OPTIONS
+  # -----------------------------------------------------------------------------------------------------------------
+  save_voxel_data: True
+  save_parameter_maps: False # future feature (not implemented)
+
+

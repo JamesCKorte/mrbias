@@ -416,9 +416,9 @@ class MRBIAS(object):
         cite_str_list = ["      TITLE: \"Magnetic resonance biomarker assessment software (MR-BIAS): an ",
                          "               automated open-source tool for the ISMRM/NIST system phantom\"",
                          "    AUTHORS: James C Korte, Zachary Chin, Madeline Carr, Lois Holloway, Rick Franich",
-                         "    JOURNAL: Manuscript Under Review",
-                         "       YEAR: Manuscript Under Review",
-                         "        DOI: Manuscript Under Review"]
+                         "    JOURNAL: Physics in Medicine & Biology",
+                         "       YEAR: 2023",
+                         "        DOI: https://doi.org/10.1088/1361-6560/acbcbb"]
         for cite_dx, cite_str in enumerate(cite_str_list):
             c.drawString(pdf.left_margin + pdf.page_width/8.,
                          line_start_pos - (5+cite_dx)*pdf.line_width,

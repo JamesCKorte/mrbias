@@ -85,8 +85,10 @@ def main():
         # parse the DICOM directory and filter image sets
         if ss_type == "PhilipsMarlin":
             scan_session = ScanSessionPhilipsMarlin(dcm_dir)
-        else:
+        if ss_type == "SiemensSkyra":
             scan_session = ScanSessionSiemensSkyra(dcm_dir)
+        elif ss_type == "PhilipsIngeniaAmbitionX":
+            scan_session = ScanSessionPhilipsIngeniaAmbitionX(dcm_dir)
         scan_session.write_pdf_summary_page(c)
 
         geometric_images = scan_session.get_geometric_images()
@@ -323,6 +325,7 @@ class ScanSessionAbstract(ABC):
     # same output as log but to pdf
     def write_pdf_summary_page(self, c):
         df = self.meta_data_df.copy(deep=True)
+        print(df['Category'])
         df['Category'].replace('', np.nan, inplace=True)
         df.dropna(subset=['Category'], inplace=True)
         df = df.drop_duplicates(subset=["SeriesInstanceUID"])
@@ -708,6 +711,44 @@ class ScanSessionAbstract(ABC):
         return im
 
 
+class ScanSessionPhilipsIngeniaAmbitionX(ScanSessionAbstract):
+    def __init__(self, dicom_dir):
+        super().__init__(dicom_dir)
+
+    def get_geometric_series_UIDs(self):
+        df_ge_3D = super().get_3D_series()
+        df_ge_3D_1mm = df_ge_3D[df_ge_3D.SliceThickness == 1]
+        df_ge_3D_1mm_psn = df_ge_3D_1mm[df_ge_3D_1mm["SequenceName"].str.match(r"(?=.*\bT1FFE\b)") == True]
+        return df_ge_3D_1mm_psn.index
+
+    def get_t1_vir_series_UIDs(self):
+        df_2D = super().get_2D_series()
+        df_2D_thick = df_2D[df_2D.SliceThickness == 6]
+        df_2D_psn = df_2D_thick[df_2D_thick["SequenceName"].str.match(r"(?=.*\bTIR\b)") == True]
+        df_2D_psn = df_2D_psn[df_2D_psn["ImageType"].str.match(r"(?=.*\bM_IR\b)") == True]
+        df_2D_psn = df_2D_psn.sort_values(by=["InversionTime"])
+        return df_2D_psn.index
+
+    def get_t1_vfa_series_UIDs(self):
+        df_3D = super().get_3D_series()
+        df_3D_3mm = df_3D[df_3D.SliceThickness == 3]
+        df_pulse = df_3D_3mm[df_3D_3mm["SequenceName"].str.match(r"(?=.*\bT1FFE\b)") == True]
+        df_pulse = df_pulse.sort_values(by=["FlipAngle"])
+        return df_pulse.index
+
+    def get_t2_series_UIDs(self):
+        df_2D = super().get_2D_series()
+        df_2D_6mm = df_2D[df_2D.SliceThickness == 6]
+        df_t2 = df_2D_6mm[df_2D_6mm["SequenceName"].str.match(r"(?=.*\bTSE\b)") == True]
+        return df_t2.index
+
+    def get_proton_density_series_UIDs(self):
+        df_2D = super().get_2D_series()
+        df_2D_6mm = df_2D[df_2D.SliceThickness == 6]
+        df_pd = df_2D_6mm[df_2D_6mm["SequenceName"].str.match(r"(?=.*\bSE\b)") == True]
+        return df_pd.index
+
+
 class ScanSessionSiemensSkyra(ScanSessionAbstract):
     def __init__(self, dicom_dir):
         super().__init__(dicom_dir)
@@ -841,6 +882,7 @@ class DICOMSearch(object):
                len(dicom_dict.keys()),
                LogLevels.LOG_INFO)
         # create a pandas dataframe from selected DICOM metadata
+        special_tag = dcm.tag.Tag(0x2001, 0x1020)
         dicom_data = []
         column_meta_names = ['ImageFilePath', 'ImageType', 'PatientName', 'PatientID', 'PatientBirthDate', 'PatientSex',
                              'StudyDate', 'StudyTime', 'StudyDescription', 'StudyInstanceUID',
@@ -855,7 +897,7 @@ class DICOMSearch(object):
                              'EchoTime', 'EchoNumbers', 'RepetitionTime', 'PixelBandwidth',
                              'NumberOfPhaseEncodingSteps', 'PercentSampling', 'SliceLocation',
                              "SequenceName", "MagneticFieldStrength", "InversionTime"]
-        alternatives_dict = {"SequenceName" : ["PulseSequenceName", "ProtocolName"]}
+        alternatives_dict = {"SequenceName" : [special_tag, "PulseSequenceName"] }
                              # "ScanningSequence": ["EchoPulseSequence"], #[EchoPulseSequence"],
                              # "MRAcquisitionType": ["VolumetricProperties"],
                              # "AcquisitionDate": ["InstanceCreationDate", "ContentDate"],
@@ -867,6 +909,8 @@ class DICOMSearch(object):
             for ds, filepath in ds_filepaths:
                 data_row = [filepath]
                 available_tags = ds.dir()
+                if special_tag in ds.keys():
+                    available_tags.append(special_tag)
                 for tag_name in column_meta_names[1:]: # skip the "ImageFilePath"
                     if tag_name in available_tags:
                         data_row.append(ds[tag_name].value)
@@ -885,7 +929,7 @@ class DICOMSearch(object):
                                     break
                         if not alt_found:
                             data_row.append(None)  # if doesn't exist so data field is left blank
-                            if not (tag_name in ["InversionTime", "RescaleSlope", "RescaleIntercept"]):
+                            if not (tag_name in ["InversionTime", "RescaleSlope", "RescaleIntercept", "PulseSequenceName", "SequenceName"]):
                                 for d in available_tags:
                                     print("----> ", d, "  : ",  ds[d])
                                 assert False

@@ -29,8 +29,8 @@ from mrbias import MRBIAS
 # specify the configuration file to control the analysis
 configuration_filename = os.path.join("config", "example_config.yaml")
 # specific the dicom directories to analyse
-dicom_directory_a = os.path.join("data", "mrbias_testset_A")
-dicom_directory_b = os.path.join("data", "mrbias_testset_B")
+dicom_directory_a = "data\mrbias_testset_A"
+dicom_directory_b = "data\mrbias_testset_B"
 
 # create a MRBIAS analysis object
 mrb = MRBIAS(configuration_filename, write_to_screen=True)

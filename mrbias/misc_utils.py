@@ -48,7 +48,7 @@ import io
 MRBIAS_VERSION_NUMBER = "1.0.1"
 MRBIAS_VERSION_DATE   = "16th January 2023"
 MRBIAS_URL            = "http://github.com/JamesCKorte/mrbias"
-MRBIAS_DOI_URL        = "http://MRBIAS_DOI_URL_TO_BE_DEFINED"
+MRBIAS_DOI_URL        = "https://doi.org/10.1088/1361-6560/acbcbb"
 
 MRBIAS_REPORT_IMAGE_DPI = 500
 

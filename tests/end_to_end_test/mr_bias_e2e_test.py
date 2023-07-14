@@ -23,6 +23,7 @@ Change Log:
   23-June-2022  :               (James Korte) : GitHub Release   MR-BIAS v1.0
 """
 import os
+import re
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
@@ -42,6 +43,8 @@ from mrbias import MRBIAS
 # DEFINE THE TEST TOLERANCES
 MAX_T1_ERROR_MS = 5.00 # ms
 MAX_T2_ERROR_MS = 5.00 # ms
+# SWITCH THE VISUALISATION ON/OFF
+VISUALISE_RESULTS = False
 
 
 # specify the configuration file to control the analysis
@@ -66,15 +69,29 @@ mrb.analyse(dicom_directory_b)
 # COMPARE THE RESULTS TO A STABLE VERSION OF THE SOFTWARE
 # -------------------------------------------------------------------------------------------------------
 # ground truth directories
-bdir_dset_gt_1 = os.path.join("ComparisonData","PMCC_46069_20190914-160825")
-bdir_dset_gt_2 = os.path.join("ComparisonData","PMCC_46069_20200706-201432")
-# the recent results for checkings
-bdir_dset_1 = "PMCC_SIEMENS-Skyra-3p0T-46069_20190914-160825"
-bdir_dset_2 = "PMCC_SIEMENS-Skyra-3p0T-46069_20200706-201432"
+bdir_dset_gt_1 = os.path.join("ComparisonData", "PMCC_46069_20190914-160825")
+bdir_dset_gt_2 = os.path.join("ComparisonData", "PMCC_46069_20200706-201432")
+# the recent results for checking against the ground truth
+# - we added a regex as the "time" at the end of the foldername may be prone to change with slightly different
+#   ScanSession filtering rules (a different series may be used - but the date should be stable) ...
+#   unless the data was taken over two dates (i.e. a midnight scanning session)
+bdir_dset_1 = None
+bdir_dset_2 = None
+regex_1 = re.compile('^PMCC_SIEMENS-Skyra-3p0T-46069_20190914*')
+regex_2 = re.compile('^PMCC_SIEMENS-Skyra-3p0T-46069_20200706*')
+for root, dirs, files in os.walk("."):
+  for d in dirs:
+    if regex_1.match(d):
+        bdir_dset_1 = d
+    if regex_2.match(d):
+        bdir_dset_2 = d
+assert ((bdir_dset_1 is not None) and (bdir_dset_2 is not None)), "Unable to find to two expected (recently generated) output directories\n\t-%s\n\t-%s" \
+                                                                  % ("./PMCC_SIEMENS-Skyra-3p0T-46069_20190914...", "./PMCC_SIEMENS-Skyra-3p0T-46069_20200706...")
 
 for bdir_dset_gt, bdir_dset in zip([bdir_dset_gt_1, bdir_dset_gt_2],
                                    [bdir_dset_1, bdir_dset_2]):
-    f, (ax1, ax2, ax3) = plt.subplots(3, 1)
+    if VISUALISE_RESULTS:
+        f, (ax1, ax2, ax3) = plt.subplots(3, 1)
 
     # compare the T1-VIR results
     df_gt  = pd.read_csv(os.path.join(bdir_dset_gt, "t1-vir_model_fit_summary.csv"))
@@ -83,10 +100,11 @@ for bdir_dset_gt, bdir_dset in zip([bdir_dset_gt_1, bdir_dset_gt_2],
     df_gt["Analysis"]  = "GroundTruth"
     df_now["Analysis"] = "Current"
     # concatenate and visualise
-    df = pd.concat([df_gt, df_now])
-    sns.stripplot(x="RoiLabel", y="T1 (mean)", hue="Analysis", data=df,
-                    jitter=True, ax=ax1)
-    plt.pause(0.01)
+    if VISUALISE_RESULTS:
+        df = pd.concat([df_gt, df_now])
+        sns.stripplot(x="RoiLabel", y="T1 (mean)", hue="Analysis", data=df,
+                        jitter=True, ax=ax1)
+        plt.pause(0.01)
     # compare results
     T1_vir_diff_per_roi = df_now["T1 (mean)"] - df_gt["T1 (mean)"]
     VIR_PASSED = np.abs(np.max(T1_vir_diff_per_roi)) < MAX_T1_ERROR_MS
@@ -100,10 +118,11 @@ for bdir_dset_gt, bdir_dset in zip([bdir_dset_gt_1, bdir_dset_gt_2],
     df_gt["Analysis"] = "GroundTruth"
     df_now["Analysis"] = "Current"
     # concatenate and visualise
-    df = pd.concat([df_gt, df_now])
-    sns.stripplot(x="RoiLabel", y="T1 (mean)", hue="Analysis", data=df,
-                  jitter=True, ax=ax2)
-    plt.pause(0.01)
+    if VISUALISE_RESULTS:
+        df = pd.concat([df_gt, df_now])
+        sns.stripplot(x="RoiLabel", y="T1 (mean)", hue="Analysis", data=df,
+                      jitter=True, ax=ax2)
+        plt.pause(0.01)
     # compare results
     T1_vfa_diff_per_roi = df_now["T1 (mean)"] - df_gt["T1 (mean)"]
     VFA_PASSED = np.abs(np.max(T1_vfa_diff_per_roi)) < MAX_T1_ERROR_MS
@@ -117,10 +136,11 @@ for bdir_dset_gt, bdir_dset in zip([bdir_dset_gt_1, bdir_dset_gt_2],
     df_gt["Analysis"] = "GroundTruth"
     df_now["Analysis"] = "Current"
     # concatenate and visualise
-    df = pd.concat([df_gt, df_now])
-    sns.stripplot(x="RoiLabel", y="T2 (mean)", hue="Analysis", data=df,
-                  jitter=True, ax=ax3)
-    plt.pause(0.01)
+    if VISUALISE_RESULTS:
+        df = pd.concat([df_gt, df_now])
+        sns.stripplot(x="RoiLabel", y="T2 (mean)", hue="Analysis", data=df,
+                      jitter=True, ax=ax3)
+        plt.pause(0.01)
     # compare results
     T2_mse_diff_per_roi = df_now["T2 (mean)"] - df_gt["T2 (mean)"]
     MSE_PASSED = np.abs(np.max(T2_mse_diff_per_roi)) < MAX_T2_ERROR_MS
@@ -135,7 +155,9 @@ for bdir_dset_gt, bdir_dset in zip([bdir_dset_gt_1, bdir_dset_gt_2],
 
     assert VIR_PASSED and VFA_PASSED and MSE_PASSED, "End to end test: FAILED!!!"
 
-    plt.pause(0.01)
+    if VISUALISE_RESULTS:
+        plt.pause(0.01)
 
 print("End to end test: PASSED")
-plt.show()
+if VISUALISE_RESULTS:
+    plt.show()

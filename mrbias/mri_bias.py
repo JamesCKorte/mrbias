@@ -123,6 +123,8 @@ class MRBIAS(object):
             ss = scan_session.ScanSessionAucklandCAM(dicom_directory)
         elif scan_protocol == "siemens_skyra_erin_3p0T":
             ss = scan_session.ScanSessionSiemensSkyraErin(dicom_directory)
+        elif scan_protocol == "philips_ingenia_ambitionX":
+            ss = scan_session.ScanSessionPhilipsIngeniaAmbitionX(dicom_directory)
         else:
             mu.log("MR-BIAS::analyse(): skipping analysis as unknown 'scan_protocol' defined for DICOM sorting",
                    LogLevels.LOG_WARNING)

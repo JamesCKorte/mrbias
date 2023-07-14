@@ -85,8 +85,10 @@ def main():
         # parse the DICOM directory and filter image sets
         if ss_type == "PhilipsMarlin":
             scan_session = ScanSessionPhilipsMarlin(dcm_dir)
-        else:
+        if ss_type == "SiemensSkyra":
             scan_session = ScanSessionSiemensSkyra(dcm_dir)
+        elif ss_type == "PhilipsIngeniaAmbitionX":
+            scan_session = ScanSessionPhilipsIngeniaAmbitionX(dcm_dir)
         scan_session.write_pdf_summary_page(c)
 
         geometric_images = scan_session.get_geometric_images()
@@ -130,7 +132,10 @@ class ImageCatetory(IntEnum):
     T1_VFA = 4
     T2_MSE = 5
     T2STAR_ME = 6
-    UNKNOWN = 7
+    SECONDARY = 7
+    UNKNOWN = 8
+IMAGE_SECONDARY_STR = "secondary"       # this is when an image may have multiple secondary (i.e. not the magnitude image)
+IMAGE_UNKNOWN_STR = "unknown"
 # Category details dictionary
 IMAGE_CAT_STR_AND_DICOM_DICT = OrderedDict()
 IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.GEOMETRY_3D] = ("geom", None)
@@ -139,7 +144,8 @@ IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.T1_VIR] = ("t1_vir", ["InversionTime"
 IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.T1_VFA] = ("t1_vfa", ["FlipAngle", "RepetitionTime"])
 IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.T2_MSE] = ("t2_mse", None)
 IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.T2STAR_ME] = ("t2star_me", None)
-IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.UNKNOWN] = ("unknown", None)
+IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.SECONDARY] = (IMAGE_SECONDARY_STR, None)
+IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.UNKNOWN] = (IMAGE_UNKNOWN_STR, None)
 # Dictionary of strings for labeling of different categories (i.e dataframes entries, foldername prefixes)
 IMAGE_CAT_STR_DICT = OrderedDict()
 # Dictionary of important DICOM fields (the variable ones) for identifying sets
@@ -159,7 +165,7 @@ the filtering functions are to be implemented in concrete subclasses and return
 simpleITK image(s) and associated scan parameters (i.e. echo times, inversion times)
 
 Helper functions to filter the MRI meta-data are implemented in this class to be 
-used by each concrete sub-class (i.e. ScanSessionSiemensSkyra, ScanSessionPhillipsIngenia etc.)
+used by each concrete sub-class (i.e. ScanSessionSiemensSkyra, ScanSessionPhilipsIngenia etc.)
 """
 class ScanSessionAbstract(ABC):
     def __init__(self, dicom_dir, force_geometry_imageset=None):
@@ -187,7 +193,7 @@ class ScanSessionAbstract(ABC):
         # -----------------------------------------------------------------
         # label the series with a category
         # -----------------------------------------------------------------
-        self.meta_data_df["Category"] = IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.UNKNOWN][0]
+        self.meta_data_df["Category"] = IMAGE_UNKNOWN_STR
         category_list = IMAGE_CAT_STR_DICT.values()
         variable_interest_list = IMAGE_CAT_DICOM_TAG_DICT.values()
         series_pd_idx_category_list = [self.get_geometric_series_UIDs(),
@@ -220,7 +226,6 @@ class ScanSessionAbstract(ABC):
         # - group the image sets together and label numerically (i.e. geometry_0, geometry_1)
         df = self.meta_data_df.drop_duplicates(subset=["SeriesInstanceUID"])
         geo_category_name, geo_dicom_tags_of_interest = IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.GEOMETRY_3D]
-        unknown_category_name, unknown_dicom_tags_of_interest = IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.UNKNOWN]
         category_idx = 0
         for idx, r in df.iterrows():
             if r.Category == geo_category_name:
@@ -235,12 +240,12 @@ class ScanSessionAbstract(ABC):
         # -----------------------------------------------------------------
         # group the image sets together and label numerically (i.e. t1_vir_0, t1_vir_0)
         df = self.meta_data_df.copy(deep=True)
-        df['Category'].replace("unknown", np.nan, inplace=True)
+        df['Category'].replace(IMAGE_UNKNOWN_STR, np.nan, inplace=True)
         df.dropna(subset=['Category'], inplace=True)
         df = df.drop_duplicates(subset=["SeriesInstanceUID"])
         for category_name, variables_of_interest in zip(category_list, variable_interest_list):
             # skip geometry images as they have already been labeled
-            if (not (category_name == geo_category_name)) and (not (category_name == unknown_category_name)):
+            if (not (category_name == geo_category_name)) and (not (category_name == IMAGE_UNKNOWN_STR)):
                 # iterate over the rows of the ordered dataframe
                 # compare the category variable of interest (i.e. flip ange in T1_VFA) & the reference geometry
                 # if the current row is a duplicate / exists in the current group then create a new group
@@ -281,6 +286,10 @@ class ScanSessionAbstract(ABC):
                 for set_name, seriesUID_list in group_seriesUID_dict.items():
                     # update so the "set_name" is based on category_name also
                     self.meta_data_df.loc[self.meta_data_df["SeriesInstanceUID"].isin(seriesUID_list) & self.meta_data_df["Category"].str.match(category_name), "ImageSet"] = set_name
+                    # also label any secondary images
+                    self.meta_data_df.loc[self.meta_data_df["SeriesInstanceUID"].isin(seriesUID_list) & self.meta_data_df["Category"].str.match(IMAGE_UNKNOWN_STR),  "Category"] = IMAGE_SECONDARY_STR
+                    self.meta_data_df.loc[self.meta_data_df["SeriesInstanceUID"].isin(seriesUID_list) & self.meta_data_df["Category"].str.match(IMAGE_SECONDARY_STR),  "ImageSet"] = set_name
+
 
         # label the series which will be used for geometry
         self.meta_data_df["GeomSet"] = ""
@@ -336,7 +345,7 @@ class ScanSessionAbstract(ABC):
     def log_meta_dataframe(self, show_unknown=True):
         df = self.meta_data_df.copy(deep=True)
         if show_unknown is False:
-            df['Category'].replace("unknown", np.nan, inplace=True)
+            df['Category'].replace(IMAGE_UNKNOWN_STR, np.nan, inplace=True)
             df.dropna(subset=['Category'], inplace=True)
         df = df.drop_duplicates(subset=["SeriesInstanceUID", "Category"])
         table_width = 182
@@ -347,7 +356,7 @@ class ScanSessionAbstract(ABC):
         mu.log("=" * table_width, LogLevels.LOG_INFO)
         cur_image_set = ""
         for idx, r in df.iterrows():
-            if r.ImageSet != cur_image_set:
+            if (r.ImageSet == "") or ((r.ImageSet != cur_image_set) and (not (r.Category in [IMAGE_UNKNOWN_STR]))):
                 mu.log("-" * table_width, LogLevels.LOG_INFO)
                 cur_image_set = r.ImageSet
             mu.log("| %s | %6s | %30s | %13s | %13s | %9s | %13s | %65s |" %
@@ -377,7 +386,7 @@ class ScanSessionAbstract(ABC):
         cur_image_set = ""
         line_offset = 0
         for line_dx, (idx, r) in enumerate(df.iterrows()):
-            if r.ImageSet != cur_image_set:
+            if (r.ImageSet == "") or ((r.ImageSet != cur_image_set) and (not (r.Category in [IMAGE_UNKNOWN_STR]))):
                 c.drawString(pdf.left_margin,
                              pdf.page_height - pdf.top_margin - pdf.small_line_width * (line_dx + 4 + line_offset),
                              "-" * table_width)
@@ -823,6 +832,47 @@ class ScanSessionTemplate(ScanSessionAbstract):
         return None
 
 
+class ScanSessionPhilipsIngeniaAmbitionX(ScanSessionAbstract):
+    def __init__(self, dicom_dir):
+        super().__init__(dicom_dir)
+
+    def get_geometric_series_UIDs(self):
+        df_ge_3D = super().get_3D_series()
+        df_ge_3D_1mm = df_ge_3D[df_ge_3D.SliceThickness == 1]
+        df_ge_3D_1mm_psn = df_ge_3D_1mm[df_ge_3D_1mm["SequenceName"].str.match(r"(?=.*\bT1FFE\b)") == True]
+        return df_ge_3D_1mm_psn.index
+
+    def get_t1_vir_series_UIDs(self):
+        df_2D = super().get_2D_series()
+        df_2D_thick = df_2D[df_2D.SliceThickness == 6]
+        df_2D_psn = df_2D_thick[df_2D_thick["SequenceName"].str.match(r"(?=.*\bTIR\b)") == True]
+        df_2D_psn = df_2D_psn[df_2D_psn["ImageType"].str.match(r"(?=.*\bM_IR\b)") == True]
+        df_2D_psn = df_2D_psn.sort_values(by=["InversionTime"])
+        return df_2D_psn.index
+
+    def get_t1_vfa_series_UIDs(self):
+        df_3D = super().get_3D_series()
+        df_3D_3mm = df_3D[df_3D.SliceThickness == 3]
+        df_pulse = df_3D_3mm[df_3D_3mm["SequenceName"].str.match(r"(?=.*\bT1FFE\b)") == True]
+        df_pulse = df_pulse.sort_values(by=["FlipAngle"])
+        return df_pulse.index
+
+    def get_t2_series_UIDs(self):
+        df_2D = super().get_2D_series()
+        df_2D_6mm = df_2D[df_2D.SliceThickness == 6]
+        df_t2 = df_2D_6mm[df_2D_6mm["SequenceName"].str.match(r"(?=.*\bTSE\b)") == True]
+        return df_t2.index
+
+    def get_proton_density_series_UIDs(self):
+        df_2D = super().get_2D_series()
+        df_2D_6mm = df_2D[df_2D.SliceThickness == 6]
+        df_pd = df_2D_6mm[df_2D_6mm["SequenceName"].str.match(r"(?=.*\bSE\b)") == True]
+        return df_pd.index
+
+    def get_t2star_series_UIDs(self):
+        return None
+
+
 class ScanSessionSiemensSkyra(ScanSessionAbstract):
     def __init__(self, dicom_dir):
         super().__init__(dicom_dir)
@@ -1026,6 +1076,7 @@ class DICOMSearch(object):
                len(dicom_dict.keys()),
                LogLevels.LOG_INFO)
         # create a pandas dataframe from selected DICOM metadata
+        special_tag = dcm.tag.Tag(0x2001, 0x1020)
         dicom_data = []
         column_meta_names = ['ImageFilePath', 'ImageType', 'PatientName', 'PatientID', 'PatientBirthDate', 'PatientSex',
                              'StudyDate', 'StudyTime', 'StudyDescription', 'StudyInstanceUID',
@@ -1040,7 +1091,7 @@ class DICOMSearch(object):
                              'EchoTime', 'EchoNumbers', 'RepetitionTime', 'PixelBandwidth',
                              'NumberOfPhaseEncodingSteps', 'PercentSampling', 'SliceLocation',
                              "SequenceName", "MagneticFieldStrength", "InversionTime"]
-        alternatives_dict = {"SequenceName" : ["PulseSequenceName", "ProtocolName"]}
+        alternatives_dict = {"SequenceName" : [special_tag, "PulseSequenceName"] }
                              # "ScanningSequence": ["EchoPulseSequence"], #[EchoPulseSequence"],
                              # "MRAcquisitionType": ["VolumetricProperties"],
                              # "AcquisitionDate": ["InstanceCreationDate", "ContentDate"],
@@ -1052,6 +1103,8 @@ class DICOMSearch(object):
             for ds, filepath in ds_filepaths:
                 data_row = [filepath]
                 available_tags = ds.dir()
+                if special_tag in ds.keys():
+                    available_tags.append(special_tag)
                 for tag_name in column_meta_names[1:]: # skip the "ImageFilePath"
                     if tag_name in available_tags:
                         data_row.append(ds[tag_name].value)
@@ -1070,7 +1123,7 @@ class DICOMSearch(object):
                                     break
                         if not alt_found:
                             data_row.append(None)  # if doesn't exist so data field is left blank
-                            if not (tag_name in ["InversionTime", "RescaleSlope", "RescaleIntercept"]):
+                            if not (tag_name in ["InversionTime", "RescaleSlope", "RescaleIntercept", "PulseSequenceName", "SequenceName"]):
                                 mu.log("DICOMSearch::__init__(): unable to locate dicom tag (%s) in file (%s)" %
                                        (tag_name, filepath), LogLevels.LOG_WARNING)
                                 #     for d in available_tags:

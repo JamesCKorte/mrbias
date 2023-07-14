@@ -71,8 +71,6 @@ scan_session = ss.ScanSessionSiemensSkyra(DICOM_DIRECTORY)
 #################################################################################
 
 
-
-
 # setup the logger to write to file
 mu.initialise_logger(OUTPUT_LOG_FILENAME, force_overwrite=True, write_to_screen=True)
 # setup a pdf to test the pdf reporting

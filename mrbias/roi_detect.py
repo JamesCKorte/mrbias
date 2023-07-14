@@ -290,7 +290,7 @@ class ROIDetector(object):
             registration_method (RegistrationOptions): a flag representing the registration method to use
         """
         assert isinstance(target_geometry_image, image_sets.ImageGeometric), \
-            "ROIDetector::init(): taget_geometry_image is expected as a SimpleITK image (not %s)" % \
+            "ROIDetector::init(): target_geometry_image is expected as a image_sets.ImageGeometric (not %s)" % \
             type(target_geometry_image)
         self.target_geo_im = target_geometry_image
         self.reg_method = registration_method

@@ -63,6 +63,7 @@ class RegistrationOptions(IntEnum):
     COREL_GRADIENTDESCENT = 1
     MSME_GRIDSEARCH = 2
     TWOSTAGE_MSMEGS_CORELGD = 3
+    MMI_GRADIENTDESCENT = 4
 
 
 def main():
@@ -249,9 +250,8 @@ class ROISphere(ROI):
     def draw(self, arr, spacing):
         # calculate how many voxels to achieve the radius
         radius_vox = self.radius_mm / spacing
-        z, y, x = np.ogrid[:arr.shape[2],:arr.shape[1],:arr.shape[0]]
+        z, y, x = np.ogrid[:arr.shape[0],:arr.shape[1],:arr.shape[2]]
         # Assigns the masked pixels in the copy image array to corresponding pixel values
-        # TODO: validate ordering of radius_vox [0,1,2] with an image which is less isotropic
         distance_from_centre = np.sqrt(((x - self.ctr_vox_coords[0]) / radius_vox[0]) ** 2 +
                                        ((y - self.ctr_vox_coords[1]) / radius_vox[1]) ** 2 +
                                        ((z - self.ctr_vox_coords[2]) / radius_vox[2]) ** 2)
@@ -279,7 +279,8 @@ class ROIDetector(object):
     def __init__(self,
                  target_geometry_image,
                  template_directory,
-                 registration_method=RegistrationOptions.TWOSTAGE_MSMEGS_CORELGD):
+                 registration_method=RegistrationOptions.TWOSTAGE_MSMEGS_CORELGD,
+                 partial_fov=False):
         """
         Class constructor stores the target image, registration method choice and loads the template image.
 
@@ -293,6 +294,7 @@ class ROIDetector(object):
             type(target_geometry_image)
         self.target_geo_im = target_geometry_image
         self.reg_method = registration_method
+        self.partial_fov = partial_fov
         self.roi_template = ROITemplate(template_directory)
         self.fixed_geom_im = self.roi_template.image
         assert isinstance(self.fixed_geom_im, sitk.Image), \
@@ -311,7 +313,8 @@ class ROIDetector(object):
         # assert rego is not None, "ROIDetector::detect(): invalid registration method, %s" % str(self.reg_method)
         rego = RegistrationMethodAbstract.generate_registration_instance(self.reg_method,
                                                                          self.fixed_geom_im,
-                                                                         self.target_geo_im.get_image())
+                                                                         self.target_geo_im.get_image(),
+                                                                         self.partial_fov)
 
         mu.log("ROIDetector::detect():",
                LogLevels.LOG_INFO)
@@ -447,24 +450,48 @@ class ROIDetector(object):
             invert_moving (bool): invert the image intensity of the moving image
             title (string): a title for the subplots
         """
-        # fake a target geo image to be on same spatial grid as fixed_geo_im for checkerboard filter
-        target_geo_im = sitk.GetImageFromArray(sitk.GetArrayFromImage(self.target_geo_im.get_image()))
-        target_geo_im.SetOrigin(self.fixed_geom_im.GetOrigin())
-        target_geo_im.SetDirection(self.fixed_geom_im.GetDirection())
-        target_geo_im.SetSpacing(self.fixed_geom_im.GetSpacing())
+        if (pre_reg_ax is None) or (post_reg_ax is None):
+            f, (pre_reg_ax, post_reg_ax) = plt.subplots(1, 2)
 
-        # define intensity limits for visualisation
-        t1_im_slice = sitk.GetArrayFromImage(target_geo_im)[slice_dx, :, :]
-        vmin = np.mean(t1_im_slice) - 1.0 * np.std(t1_im_slice)
-        vmax = np.mean(t1_im_slice) + 2.0 * np.std(t1_im_slice)
-        inversion_max = np.mean(t1_im_slice) + 2.5 * np.std(t1_im_slice)
+        # # fake a target geo image to be on same spatial grid as fixed_geo_im for checkerboard filter
+        # target_geo_im = sitk.GetImageFromArray(sitk.GetArrayFromImage(self.target_geo_im.get_image()))
+        # target_geo_im.SetOrigin(self.fixed_geom_im.GetOrigin())
+        # target_geo_im.SetDirection(self.fixed_geom_im.GetDirection())
+        # target_geo_im.SetSpacing(self.fixed_geom_im.GetSpacing())
+        #
+        # # define intensity limits for visualisation
+        # print("ROIDetector::__visualise_registration", sitk.GetArrayFromImage(target_geo_im).shape) # DEBUG line
+        # t1_im_slice = sitk.GetArrayFromImage(target_geo_im)[slice_dx, :, :]
+        # vmin = np.mean(t1_im_slice) - 1.0 * np.std(t1_im_slice)
+        # vmax = np.mean(t1_im_slice) + 2.0 * np.std(t1_im_slice)
+        # inversion_max = np.mean(t1_im_slice) + 2.5 * np.std(t1_im_slice)
+        #
+        # # pre-registration
+        # if invert_moving:
+        #     target_geo_im = sitk.InvertIntensity(target_geo_im, maximum=inversion_max)
+        # target_geo_im_match_type = sitk.Cast(target_geo_im, sitk.sitkUInt16)
+        # checker_im = sitk.CheckerBoard(self.fixed_geom_im, target_geo_im_match_type, [4, 4, 1])
+        # checker_arr = sitk.GetArrayFromImage(checker_im)
 
         # pre-registration
+        # resample the target image and mask - onto the deformed fixed space
+        # (so we can use the reference ROI slice for visualisation)
+        fixed_im = self.fixed_geom_im
+        target_pre_im = sitk.Resample(self.target_geo_im.get_image(),
+                                      fixed_im,
+                                      sitk.Euler3DTransform(), sitk.sitkLinear)
         if invert_moving:
-            target_geo_im = sitk.InvertIntensity(target_geo_im, maximum=inversion_max)
-        target_geo_im_match_type = sitk.Cast(target_geo_im, sitk.sitkUInt16)
-        checker_im = sitk.CheckerBoard(self.fixed_geom_im, target_geo_im_match_type, [4, 4, 1])
+            target_pre_im = sitk.InvertIntensity(target_pre_im, maximum=inversion_max)
+
+        target_pre_im_match_type = sitk.Cast(target_pre_im, sitk.sitkUInt16)
+        checker_im = sitk.CheckerBoard(fixed_im, target_pre_im_match_type, [4, 4, 1])
         checker_arr = sitk.GetArrayFromImage(checker_im)
+
+        im_slice = checker_arr[slice_dx, :, :]
+        vmin = np.mean(im_slice) - 1.0 * np.std(im_slice)
+        vmax = np.mean(im_slice) + 2.0 * np.std(im_slice)
+        pre_reg_ax.imshow(im_slice, cmap='gray', vmin=vmin, vmax=vmax)
+
 
         # post-registration
         rotated_fixed_im = self.__get_rotated_sampling_im()
@@ -479,10 +506,6 @@ class ROIDetector(object):
         target_im_match_type = sitk.Cast(target_im, sitk.sitkUInt16)
         checker_im_reg = sitk.CheckerBoard(rotated_fixed_im, target_im_match_type, [4, 4, 1])
         checker_arr_reg = sitk.GetArrayFromImage(checker_im_reg)
-        if (pre_reg_ax is None) or (post_reg_ax is None):
-            f, (pre_reg_ax, post_reg_ax) = plt.subplots(1, 2)
-        im_slice = checker_arr[slice_dx, :, :]
-        pre_reg_ax.imshow(im_slice, cmap='gray', vmin=vmin, vmax=vmax)
         im_slice = checker_arr_reg[slice_dx, :, :]
         post_reg_ax.imshow(im_slice, cmap='gray', vmin=vmin, vmax=vmax)
         for ax in [pre_reg_ax, post_reg_ax]:
@@ -627,16 +650,21 @@ class RegistrationMethodAbstract(ABC):
         return None, None
 
     @staticmethod
-    def generate_registration_instance(reg_method, fixed_geom_im, target_geo_im):
+    def generate_registration_instance(reg_method, fixed_geom_im, target_geo_im, partial_fov=False):
         rego = None
+        centre_images = not partial_fov
         if reg_method == RegistrationOptions.COREL_GRADIENTDESCENT:
-            rego = RegistrationCorrelationGradientDescent(fixed_geom_im, target_geo_im)
+            rego = RegistrationCorrelationGradientDescent(fixed_geom_im, target_geo_im,
+                                                          centre_images=centre_images)
         elif reg_method == RegistrationOptions.MSME_GRIDSEARCH:
             rego = RegistrationMSMEGridSearch(fixed_geom_im, target_geo_im)
         elif reg_method == RegistrationOptions.TWOSTAGE_MSMEGS_CORELGD:
             rego = RegistrationTwoStage(fixed_geom_im, target_geo_im,
                                         RegistrationOptions.MSME_GRIDSEARCH,
                                         RegistrationOptions.COREL_GRADIENTDESCENT)
+        elif reg_method == RegistrationOptions.MMI_GRADIENTDESCENT:
+            rego = RegistrationMutualInformationGradientDescent(fixed_geom_im, target_geo_im,
+                                                                centre_images=centre_images)
         assert rego is not None, "RegistrationMethodAbstract::generate_registration_instance(): " \
                                  "invalid registration method, %s" % str(reg_method)
         return rego
@@ -652,15 +680,20 @@ class RegistrationMethodAbstract(ABC):
 class RegistrationTwoStage(RegistrationMethodAbstract):
     def __init__(self, fixed_image, moving_image,
                  stage_a_registration_method=RegistrationOptions.MSME_GRIDSEARCH,
-                 stage_b_registration_method=RegistrationOptions.COREL_GRADIENTDESCENT):
+                 stage_b_registration_method=RegistrationOptions.COREL_GRADIENTDESCENT,
+                 partial_fov_a=False,
+                 partial_fov_b=False):
         super().__init__(fixed_image, moving_image)
         mu.log("RegistrationTwoStage::init()", LogLevels.LOG_INFO)
         self.stage_a_registration_method = stage_a_registration_method
         self.stage_b_registration_method = stage_b_registration_method
         self.stage_a_rego = RegistrationMethodAbstract.generate_registration_instance(stage_a_registration_method,
-                                                                                      fixed_image, moving_image)
-        self.stage_b_rego = RegistrationMethodAbstract.generate_registration_instance(stage_b_registration_method,
-                                                                                      fixed_image, moving_image)
+                                                                                      fixed_image, moving_image,
+                                                                                      partial_fov_a)
+        self.stage_b_rego = None
+        self.partial_fov_a = partial_fov_a
+        self.partial_fov_b = partial_fov_b
+
 
     def register(self):
         # stage A registration
@@ -668,7 +701,8 @@ class RegistrationTwoStage(RegistrationMethodAbstract):
         trans_image_a = sitk.Resample(self.moving_im, self.fixed_im, trans_a, sitk.sitkLinear)
         # stage B registration
         self.stage_b_rego = RegistrationMethodAbstract.generate_registration_instance(self.stage_b_registration_method,
-                                                                                      self.fixed_im, trans_image_a)
+                                                                                      self.fixed_im, trans_image_a,
+                                                                                      self.partial_fov_b)
         trans_b, metric_b = self.stage_b_rego.register()
         # compose the final transform
         combined_transform = None
@@ -685,9 +719,11 @@ class RegistrationTwoStage(RegistrationMethodAbstract):
 
 
 class RegistrationCorrelationGradientDescent(RegistrationMethodAbstract):
-    def __init__(self, fixed_image, moving_image):
+    def __init__(self, fixed_image, moving_image,
+                 centre_images=True):
         super().__init__(fixed_image, moving_image)
         mu.log("RegistrationCorrelationGradientDescent::init()", LogLevels.LOG_INFO)
+        self.centre_images = centre_images
 
     def register(self):
         moving = sitk.Cast(self.moving_im, sitk.sitkFloat32)
@@ -702,8 +738,46 @@ class RegistrationCorrelationGradientDescent(RegistrationMethodAbstract):
                                                    minStep=0.000001)
         R.SetOptimizerScalesFromPhysicalShift()
         # centre as initial transform
-        initial_transform = sitk.CenteredTransformInitializer(fixed, moving, sitk.Euler3DTransform(),
-                                                              sitk.CenteredTransformInitializerFilter.GEOMETRY)
+        initial_transform = sitk.Euler3DTransform()
+        if self.centre_images:
+            initial_transform = sitk.CenteredTransformInitializer(fixed, moving, sitk.Euler3DTransform(),
+                                                                  sitk.CenteredTransformInitializerFilter.GEOMETRY)
+        R.SetInitialTransform(initial_transform)
+        R.SetInterpolator(sitk.sitkLinear)
+        # hook up a logger
+        R.AddCommand(sitk.sitkIterationEvent, lambda: self.print_iteration_info(R))
+        # register
+        final_transform = R.Execute(fixed, moving)
+        return final_transform, R.GetMetricValue()
+
+
+class RegistrationMutualInformationGradientDescent(RegistrationMethodAbstract):
+    def __init__(self, fixed_image, moving_image,
+                 centre_images=True):
+        super().__init__(fixed_image, moving_image)
+        mu.log("RegistrationCorrelationGradientDescent::init()", LogLevels.LOG_INFO)
+        self.centre_images = centre_images
+
+    def register(self):
+        moving = sitk.Cast(self.moving_im, sitk.sitkFloat32)
+        fixed = sitk.Cast(self.fixed_im, sitk.sitkFloat32)
+        # setup the registration method
+        R = sitk.ImageRegistrationMethod()
+        R.SetMetricAsMattesMutualInformation(numberOfHistogramBins=50)
+        R.SetMetricSamplingPercentage(0.25)
+        R.SetMetricSamplingStrategy(R.RANDOM)
+        # R.SetOptimizerAsRegularStepGradientDescent(learningRate=1.0,
+        #                                            numberOfIterations=5000,
+        #                                            minStep=0.000001)
+        R.SetOptimizerAsGradientDescent(learningRate=1.0,
+                                        numberOfIterations=1000)
+                                        #double convergenceMinimumValue=1e-6)
+        R.SetOptimizerScalesFromPhysicalShift()
+        # centre as initial transform
+        initial_transform = sitk.Euler3DTransform()
+        if self.centre_images:
+            initial_transform = sitk.CenteredTransformInitializer(fixed, moving, sitk.Euler3DTransform(),
+                                                                  sitk.CenteredTransformInitializerFilter.GEOMETRY)
         R.SetInitialTransform(initial_transform)
         R.SetInterpolator(sitk.sitkLinear)
         # hook up a logger

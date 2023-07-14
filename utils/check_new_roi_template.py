@@ -19,9 +19,15 @@ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY
 --------------------------------------------------------------------------------
 Change Log:
 --------------------------------------------------------------------------------
-07-July-2023  :               (James Korte) : Initial code to help users test their new scanner protocols
+10-July-2023  :               (James Korte) : Initial code to help users test a new detection template
 """
+# load up relevant modules
 import os
+import SimpleITK as sitk
+import matplotlib.pyplot as plt
+from reportlab.pdfgen import canvas
+from reportlab.lib.pagesizes import landscape
+
 # Code to add the parent directory to allow importing mrbias core modules
 from pathlib import Path
 import sys
@@ -31,13 +37,11 @@ base_dir = root
 if str(root) not in sys.path:
     sys.path.insert(1, str(root))
 # import required mrbias modules
+import mrbias.roi_detect as roi_detect
 import mrbias.scan_session as ss
-from mrbias import misc_utils as mu
-from mrbias.misc_utils import LogLevels
+import mrbias.image_sets as image_sets
+import mrbias.misc_utils as mu
 
-# for pdf output
-from reportlab.lib.pagesizes import landscape
-from reportlab.pdfgen import canvas
 
 
 #################################################################################
@@ -46,82 +50,77 @@ from reportlab.pdfgen import canvas
 #
 # Set the following variables:
 # -----------------------------------------------------------------------------
-# - DICOM_DIRECTORY:     the directory of dicom images you want to search
-# - OUTPUT_LOG_FILENAME: the filename for the output log
-# - OUTPUT_PDF_FILENAME: the filename for the output pdf
+# - ROI_TEMPLATE_NAME: the name of the sub-directory you have put the new ROI template in
+#                    : this is expected to be a sub-directory of mrbias/roi_detection_templates
+# - DICOM_DIRECTORY:     the directory of dicom images you want to detect ROIs on
+#
 #
 # Create your new ScanSession<YourClassName> class for testing:
 # --------------------------------------------------------------------------------
 # i.e. scan_session = ss.ScanSessionYourClassName(DICOM_DIRECTORY)
 #
+#
 # Check the results:
 # -------------------------------------------------------------------------------
 #   The script will log information to the terminal while it processes the data
-# you can read this to check things are working correctly. In particular you
-# can check that the imageset objects which are created match you expectation
-# (i.e. there are 5 VFA images created if you expect five from the dataset)
-#   There is also a pdf generated ("scan_session_test.pdf") which you can
-# visually inspect to check the images have been correctly identified
-#
+# you can read this to check things are working correctly.
+#   There is also a pdf generated ("check_roi_detect.pdf") which you can
+# visually inspect to check the ROIs are in the correct locations
 #################################################################################
+ROI_TEMPLATE_NAME = "siemens_skyra_3p0T"
 DICOM_DIRECTORY = os.path.join(base_dir, "data", "mrbias_testset_B")
-OUTPUT_LOG_FILENAME = "scan_session_test.log"
-OUTPUT_PDF_FILENAME = "scan_session_test.pdf"
 scan_session = ss.ScanSessionSiemensSkyra(DICOM_DIRECTORY)
+registration_method = roi_detect.RegistrationOptions.TWOSTAGE_MSMEGS_CORELGD # default
 #################################################################################
 
 
 
 
-# setup the logger to write to file
-mu.initialise_logger(OUTPUT_LOG_FILENAME, force_overwrite=True, write_to_screen=True)
+
+
 # setup a pdf to test the pdf reporting
 pdf = mu.PDFSettings()
-c = canvas.Canvas(OUTPUT_PDF_FILENAME, landscape(pdf.page_size))
-
-mu.log("="*100, LogLevels.LOG_INFO)
-mu.log("SCANNING DICOM DIR: %s" % DICOM_DIRECTORY, LogLevels.LOG_INFO)
-mu.log("="*100, LogLevels.LOG_INFO)
-# parse the DICOM directory and filter image sets
-scan_session.write_pdf_summary_page(c)
-# save the pdf report
-c.save()
-
+c = canvas.Canvas("check_roi_detect.pdf", landscape(pdf.page_size))
+scan_session.write_pdf_summary_page(c)                      # write to pdf for checking
+# get the T1 and T2 imagesets
 geometric_images = scan_session.get_geometric_images()
-for geom_image in geometric_images:
-    mu.log("Found GEO: %s" % type(geom_image), LogLevels.LOG_INFO)
-    mu.log("\t\t%s" % str(geom_image), LogLevels.LOG_INFO)
-
-pd_images = scan_session.get_proton_density_images()
-for pd_image in pd_images:
-    mu.log("Found PD: %s" % type(pd_image), LogLevels.LOG_INFO)
-    mu.log("\t\t%s" % str(pd_image), LogLevels.LOG_INFO)
-
 t1_vir_imagesets = scan_session.get_t1_vir_image_sets()
-for t1_vir_imageset in t1_vir_imagesets:
-    mu.log("Found T1(VIR): %s" % type(t1_vir_imageset), LogLevels.LOG_INFO)
-    mu.log("\t\t%s" % str(t1_vir_imageset), LogLevels.LOG_INFO)
-
 t1_vfa_imagesets = scan_session.get_t1_vfa_image_sets()
-for t1_vfa_imageset in t1_vfa_imagesets:
-    mu.log("Found T1(VFA): %s" % type(t1_vfa_imageset), LogLevels.LOG_INFO)
-    mu.log("\t\t%s" % str(t1_vfa_imageset), LogLevels.LOG_INFO)
-
 t2_mse_imagesets = scan_session.get_t2_mse_image_sets()
-for t2_mse_imageset in t2_mse_imagesets:
-    mu.log("Found T2(MSE): %s" % type(t2_mse_imageset), LogLevels.LOG_INFO)
-    mu.log("\t\t%s" % str(t2_mse_imageset), LogLevels.LOG_INFO)
-
 t2star_imagesets = scan_session.get_t2star_image_sets()
+
+
+# define the test template
+TEST_TEMPLATE_DIR = os.path.join(mu.reference_template_directory(), ROI_TEMPLATE_NAME)
+# create the geometric image
+sitk_im = mu.get_sitk_image_from_dicom_image_folder(os.path.join(TEST_TEMPLATE_DIR, "dicom"))
+test_geom_im = image_sets.ImageGeometric("TemplateImage", sitk_im)
+
+# Perform ROI detection on all geometric images
+# - this stores the result for use by the related imagesets
+for geometric_image in geometric_images:
+    # detect the ROIs and return the masks on the target image
+    roi_detector = roi_detect.ROIDetector(geometric_image, TEST_TEMPLATE_DIR,
+                                          registration_method=registration_method)
+    roi_detector.detect()
+    # output to pdf
+    roi_detector.write_pdf_summary_page(c, "ROI TEST: %s" % geometric_image.label)
+
+# for each of the image datasets show the detected ROIs
+for t1_vir_imageset in t1_vir_imagesets:
+    t1_vir_imageset.update_ROI_mask()  # trigger a mask update
+    t1_vir_imageset.write_roi_pdf_page(c)
+for t1_vfa_imageset in t1_vfa_imagesets:
+    t1_vfa_imageset.update_ROI_mask()  # trigger a mask update
+    t1_vfa_imageset.write_roi_pdf_page(c)
+for t2_mse_imageset in t2_mse_imagesets:
+    t2_mse_imageset.update_ROI_mask()  # trigger a mask update
+    t2_mse_imageset.write_roi_pdf_page(c)
 for t2star_imageset in t2star_imagesets:
-    mu.log("Found T2*: %s" % type(t2star_imageset), LogLevels.LOG_INFO)
-    mu.log("\t\t%s" % str(t2star_imageset), LogLevels.LOG_INFO)
-
-# give a visual break in the log
-mu.log("", LogLevels.LOG_INFO)
+    t2star_imageset.update_ROI_mask()  # trigger a mask update
+    t2star_imageset.write_roi_pdf_page(c)
 
 
 
-
-
-
+print("------------- FIN ------------------")
+c.save()

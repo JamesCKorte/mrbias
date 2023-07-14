@@ -119,6 +119,10 @@ class MRBIAS(object):
             ss = scan_session.ScanSessionSiemensSkyra(dicom_directory)
         elif scan_protocol == "philips_marlin_1p5T":
             ss = scan_session.ScanSessionPhilipsMarlin(dicom_directory)
+        elif scan_protocol == "auckland_cam_3p0T":
+            ss = scan_session.ScanSessionAucklandCAM(dicom_directory)
+        elif scan_protocol == "siemens_skyra_erin_3p0T":
+            ss = scan_session.ScanSessionSiemensSkyraErin(dicom_directory)
         else:
             mu.log("MR-BIAS::analyse(): skipping analysis as unknown 'scan_protocol' defined for DICOM sorting",
                    LogLevels.LOG_WARNING)
@@ -171,9 +175,13 @@ class MRBIAS(object):
         mu.log("MR-BIAS::analyse() : Detect the ROIs on each geometry image ...", LogLevels.LOG_INFO)
         mu.log("-" * 100, LogLevels.LOG_INFO)
         roi_template = self.conf.get_roi_template()
+        roi_reg_method = self.conf.get_roi_registration_method()
+        roi_is_partial_fov = self.conf.get_roi_registration_partial_fov()
         roi_template_dir = None
         if roi_template == "siemens_skyra_3p0T":
             roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_skyra_3p0T")
+        elif roi_template == "systemlite_siemens_vida_3p0T":
+            roi_template_dir = os.path.join(mu.reference_template_directory(), "systemlite_siemens_vida_3p0T")
         # ... add others
         if roi_template is None:
             mu.log("MR-BIAS::analyse(): skipping analysis as unknown 'roi_template' defined for ROI detection",
@@ -187,7 +195,15 @@ class MRBIAS(object):
             roi_detectors = OrderedDict()
             for geom_image in geometric_images_linked:
                 # create a roi detector
-                roi_detector = roi_detect.ROIDetector(geom_image, roi_template_dir)
+                reg_method = None
+                if roi_reg_method == "two_stage_msme-GS_correl-GD":
+                    reg_method = roi_detect.RegistrationOptions.TWOSTAGE_MSMEGS_CORELGD
+                elif roi_reg_method == "mattesMI-GD":
+                    reg_method = roi_detect.RegistrationOptions.MMI_GRADIENTDESCENT
+                assert reg_method is not None, "MR-BIAS::analyse(): invalid ROI registration method selected - please check your configuration file"
+                roi_detector = roi_detect.ROIDetector(geom_image, roi_template_dir,
+                                                      registration_method=reg_method,
+                                                      partial_fov=roi_is_partial_fov)
                 # detect the ROIs and store the masks on the target image
                 roi_detector.detect()
                 # add a summary page to the PDF
@@ -513,6 +529,32 @@ class MRIBIASConfiguration(object):
         default_value = None
         mu.log("MR-BIASConfiguration::get_roi_template(): not found in configuration file, using default value : %s" % default_value, LogLevels.LOG_WARNING)
         return default_value
+
+    def get_roi_registration_method(self):
+        detect_config = self.__get_roi_detection_config()
+        if detect_config is not None:
+            if "registration_method" in detect_config.keys():
+                x = detect_config["registration_method"]
+                # todo: check with options (from another YAML file?)
+                return x
+        # not found, return a default value
+        default_value = "two_stage_msme-GS_correl-GD"
+        mu.log("MR-BIASConfiguration::get_roi_registration_method(): not found in configuration file, using default value : %s" % default_value, LogLevels.LOG_WARNING)
+        return default_value
+
+    def get_roi_registration_partial_fov(self):
+        detect_config = self.__get_roi_detection_config()
+        if detect_config is not None:
+            if "partial_fov" in detect_config.keys():
+                x = detect_config["partial_fov"]
+                # todo: check with options (from another YAML file?)
+                return x
+        # not found, return a default value
+        default_value = False
+        mu.log("MR-BIASConfiguration::get_roi_registration_partial_fov(): not found in configuration file, using default value : %s" % default_value, LogLevels.LOG_WARNING)
+        return default_value
+
+
 
 
     def __get_global_config(self):

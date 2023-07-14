@@ -6,6 +6,12 @@ __pycache__/
 # C extensions
 *.so
 
+# Folders and files to ignore
+output/
+tests/end_to_end_test/PMCC_SIEMENS*
+utils/*.pdf
+utils/*.csv
+
 # Distribution / packaging
 .Python
 build/

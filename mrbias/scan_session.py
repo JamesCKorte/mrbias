@@ -235,7 +235,7 @@ class ScanSessionAbstract(ABC):
         # -----------------------------------------------------------------
         # group the image sets together and label numerically (i.e. t1_vir_0, t1_vir_0)
         df = self.meta_data_df.copy(deep=True)
-        df['Category'].replace('', np.nan, inplace=True)
+        df['Category'].replace("unknown", np.nan, inplace=True)
         df.dropna(subset=['Category'], inplace=True)
         df = df.drop_duplicates(subset=["SeriesInstanceUID"])
         for category_name, variables_of_interest in zip(category_list, variable_interest_list):
@@ -279,7 +279,8 @@ class ScanSessionAbstract(ABC):
                 group_seriesUID_dict[set_name] = list(current_group.values())
                 # apply the label to the main dataframe
                 for set_name, seriesUID_list in group_seriesUID_dict.items():
-                    self.meta_data_df.loc[self.meta_data_df["SeriesInstanceUID"].isin(seriesUID_list), "ImageSet"] = set_name
+                    # update so the "set_name" is based on category_name also
+                    self.meta_data_df.loc[self.meta_data_df["SeriesInstanceUID"].isin(seriesUID_list) & self.meta_data_df["Category"].str.match(category_name), "ImageSet"] = set_name
 
         # label the series which will be used for geometry
         self.meta_data_df["GeomSet"] = ""
@@ -332,11 +333,12 @@ class ScanSessionAbstract(ABC):
         return None
 
     # output the categorisation, set grouping & reference images (via the log)
-    def log_meta_dataframe(self):
+    def log_meta_dataframe(self, show_unknown=True):
         df = self.meta_data_df.copy(deep=True)
-        df['Category'].replace('', np.nan, inplace=True)
-        df.dropna(subset=['Category'], inplace=True)
-        df = df.drop_duplicates(subset=["SeriesInstanceUID"])
+        if show_unknown is False:
+            df['Category'].replace("unknown", np.nan, inplace=True)
+            df.dropna(subset=['Category'], inplace=True)
+        df = df.drop_duplicates(subset=["SeriesInstanceUID", "Category"])
         table_width = 182
         mu.log("=" * table_width, LogLevels.LOG_INFO)
         mu.log(
@@ -359,7 +361,7 @@ class ScanSessionAbstract(ABC):
         df = self.meta_data_df.copy(deep=True)
         df['Category'].replace('', np.nan, inplace=True)
         df.dropna(subset=['Category'], inplace=True)
-        df = df.drop_duplicates(subset=["SeriesInstanceUID"])
+        df = df.drop_duplicates(subset=["SeriesInstanceUID", "Category"])
         table_width = 179
         pdf = mu.PDFSettings()
         c.setFont(pdf.font_name, pdf.small_font_size)  # set to a fixed width font
@@ -947,6 +949,37 @@ class ScanSessionAucklandCAM(ScanSessionAbstract):
         df_ge_3D_multiEcho = df_ge_2D[df_ge_2D["SequenceName"].str.match(r"^\*fl2d12") == True]
         df_ge_3D_multiEcho_orig = df_ge_3D_multiEcho[df_ge_3D_multiEcho["ImageType"].str.contains("'ORIGINAL'", regex=False) == True]
         return df_ge_3D_multiEcho_orig.index
+
+
+class ScanSessionSiemensSkyraErin(ScanSessionAbstract):
+    def __init__(self, dicom_dir):
+        super().__init__(dicom_dir)
+
+    def get_geometric_series_UIDs(self):
+        df_se = super().get_spin_echo_series()
+        df_se_2D = super().get_2D_series(df_se)
+        df_se_2D_lt4mm = df_se_2D[df_se_2D.SliceThickness < 4]
+        return df_se_2D_lt4mm.index
+
+    def get_t1_vir_series_UIDs(self):
+        return None
+
+    def get_t1_vfa_series_UIDs(self):
+        df_ge = super().get_gradient_echo_series()
+        df_ge_3D = super().get_3D_series(df_ge)
+        df_ge_3D_orig = df_ge_3D[df_ge_3D["ImageType"].str.contains("'ORIGINAL'", regex=False) == True]
+        df_ge_3D_orig_noWater = df_ge_3D_orig[df_ge_3D_orig["ImageType"].str.contains("'WATER'", regex=False) == False]
+        df_ge_3D_orig_noWater = df_ge_3D_orig_noWater.sort_values(by=["FlipAngle"])
+        return df_ge_3D_orig_noWater.index
+
+    def get_t2_series_UIDs(self):
+        return None
+
+    def get_proton_density_series_UIDs(self):
+        return None
+
+    def get_t2star_series_UIDs(self):
+        return None
 
 
 

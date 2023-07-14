@@ -21,20 +21,7 @@ Change Log:
 --------------------------------------------------------------------------------
 07-July-2023  :               (James Korte) : Initial code to help users add new scanner protocols
 """
-
-#################################################################################
-# Set the following two variables:
-# -----------------------------------------------------------------------------
-# - DICOM_DIRECTORY:     the directory of dicom images you want to search
-# - OUTPUT_CSV_FILENAME: the file to write the dicom metadata to for viewing
-#
-#################################################################################
-DICOM_DIRECTORY = "I:\JK\MR-BIAS\Data_From_Hayley\Phantom_scans\Phantom_scans"
-OUTPUT_CSV_FILENAME = "dicom_metadata.csv"
-
-
-
-
+import os
 import numpy as np
 import pandas as pd
 
@@ -43,19 +30,38 @@ from pathlib import Path
 import sys
 file = Path(__file__).resolve()
 parent, root = file.parent, file.parents[1]
+base_dir = root
 if str(root) not in sys.path:
     sys.path.insert(1, str(root))
 # import required mrbias modules
 import mrbias.scan_session as ss
 
 
+#################################################################################
+# INSTRUCTIONS
+#################################################################################
+# Set the following two variables:
+# -----------------------------------------------------------------------------
+# - DICOM_DIRECTORY:     the directory of dicom images you want to search
+# - OUTPUT_CSV_FILENAME: the file to write the dicom metadata to for viewing
+#
+# Check the results:
+# -------------------------------------------------------------------------------
+#   The script will output a comma seperated data file with the dicom metadata
+#################################################################################
+DICOM_DIRECTORY = os.path.join(base_dir, "data", "mrbias_testset_B")
+OUTPUT_CSV_FILENAME = "dicom_metadata.csv"
+#################################################################################
 
-# # search the dicom directory and strip metadata to write in the output csv file
-# scan_session = ss.DICOMSearch(target_dir=DICOM_DIRECTORY,
-#                               output_csv_filename=OUTPUT_CSV_FILENAME)
 
-# # sort the data to show a summary to help define sorting rules
-# df = scan_session.get_df()
+
+
+
+# search the dicom directory and strip metadata to write in the output csv file
+scan_session = ss.DICOMSearch(target_dir=DICOM_DIRECTORY,
+                              output_csv_filename=OUTPUT_CSV_FILENAME)
+
+# sort the data to show a summary to help define sorting rules
 df = pd.read_csv(OUTPUT_CSV_FILENAME)
 df_sum = df.drop_duplicates(subset=['SeriesInstanceUID'],
                             keep='last').reset_index(drop = True)

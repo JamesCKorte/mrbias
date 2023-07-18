@@ -32,6 +32,7 @@ t1_roi_3:
 
 ## How to define your own regions of interest
 To define your regions of interest, open your dicom image in a viewing software such as [ImageJ](https://imagej.net/ij/download.html) or [FIJI](https://imagej.net/software/fiji/downloads). You can then navigate through the image and hover over the centre of a region of interest, such as the spherical region in our example and read a coordinate from the software. In FIJI you can see this as the voxel in the round brackets, in the screenshot you can read the location as [101, 71, 20]
+![A screenshot of FIJI displaying a slice of a system lite phantom and the location of the mouse being used to determine the centre of a region of interest](./assets/add_roi_template_fiji_example.png)
  
 Which will be entered into our T1_roi.yaml file as
 ```yaml
@@ -41,9 +42,13 @@ t1_roi_1:
   ctr_vox_coords: [101, 71, 20]
 ```
  
-If you now run our helper script from the “utils/add_new_roi_template.py” then you can check that your coordinates and the radius of the sphere are set correctly
- 
-And once all 15 ROIs have been added we have the following. 
+If you now run our helper script from the “utils/add_new_roi_template.py” then you can check that your coordinates and the radius of the sphere are set correctly,
+
+![The output of the add_new_roi_template.py script showing a single ROI placed in the correct spot](./assets/add_roi_template_one_region.png)
+
+and once all 15 ROIs have been added we have the following. 
+
+![The output of the add_new_roi_template.py script showing all ROIs placed in the correct spots](./assets/add_roi_template_all_regions.png)
  
 ### Matching the labels to the correct phantom ROI
 It is important to follow a naming convention for the ROIs, as the software uses these to lookup the reference values which have been taken from manufacturers manuals. These will be used in percent bias calculations. For the system phantoms (premium and lite versions) we use the naming conventions visible in the screenshots (i.e. t1_roi_1 to t1_roi_14) 
@@ -81,7 +86,10 @@ scan_session = ss.ScanSessionSiemensSkyra(DICOM_DIRECTORY)
 registration_method = roi_detect.RegistrationOptions.TWOSTAGE_MSMEGS_CORELGD # default
 #################################################################################
 ```
- 
+
+The output of this script is a PDF called "check_roi_detect.pdf" which has a visual summary you can check to ensure your new ROI template is functioning correctly.
+
+![An example of the PDF output from the "check_new_roi_template.py" script](./assets/add_roi_template_check.png)
 
 
 ### Adding the new template as an option for MRBIAS
@@ -117,5 +125,7 @@ if roi_template is None:
     return None
 ```
 
+## Concluding remarks
+We hope this has been helpful for you to make your own region of interest template. If anything is unclear and you would like some further assistance, or if you would like to share your template for others to use, please reach out to the MR-BIAS team with the [contact details on the main page](../README.md). 
 
 

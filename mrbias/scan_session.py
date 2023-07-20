@@ -48,7 +48,7 @@ if str(root) not in sys.path:
 # import required mrbias modules
 from mrbias import misc_utils as mu
 from mrbias.misc_utils import LogLevels
-from mrbias.image_sets import ImageGeometric, ImageProtonDensity, ImageSetT1VIR, ImageSetT1VFA, ImageSetT2MSE, ImageSetT2Star
+from mrbias.image_sets import ImageGeometric, ImageProtonDensity, ImageSetT1VIR, ImageSetT1VFA, ImageSetT2MSE, ImageSetT2Star, ImageSetDW
 
 # for pdf output
 from reportlab.lib.pagesizes import landscape
@@ -71,6 +71,14 @@ def main():
     test_dcm_dir_list = [dcm_dir_a, dcm_dir_b]
     test_ss_config_list = ["SiemensSkyra", "SiemensSkyra"]
 
+    # Philips DW test
+    #dcm_dir_d = "/Users/stanleynorris/Desktop/MRBIAS/new_data/Intial_SystemAndDiffusionDataset/DWI_Phantom/Images"
+    #dcm_dir_c = "/Users/stanleynorris/Desktop/MRBIAS/new_data/Intial_SystemAndDiffusionDataset/System_Phantom_with_CalibreAnalysis/Images"
+    #test_dcm_dir_list.append(dcm_dir_c)
+    #test_dcm_dir_list.append(dcm_dir_d)
+    #test_ss_config_list.append("PhilipsIngeniaAmbitionX")
+    #test_ss_config_list.append("DiffPhilipsIngeniaAmbitionX")
+
     # setup the logger to write to file
     mu.initialise_logger("scan_session.log", force_overwrite=True, write_to_screen=True)
     # setup a pdf to test the pdf reporting
@@ -84,11 +92,13 @@ def main():
         mu.log("="*100, LogLevels.LOG_INFO)
         # parse the DICOM directory and filter image sets
         if ss_type == "PhilipsMarlin":
-            scan_session = ScanSessionPhilipsMarlin(dcm_dir)
+            scan_session = SystemSessionPhilipsMarlin(dcm_dir)
         if ss_type == "SiemensSkyra":
-            scan_session = ScanSessionSiemensSkyra(dcm_dir)
+            scan_session = SystemSessionSiemensSkyra(dcm_dir)
         elif ss_type == "PhilipsIngeniaAmbitionX":
-            scan_session = ScanSessionPhilipsIngeniaAmbitionX(dcm_dir)
+            scan_session = SystemSessionPhilipsIngeniaAmbitionX(dcm_dir)
+        elif ss_type == "DiffPhilipsIngeniaAmbitionX":
+            scan_session = DiffusionSessionPhilipsIngeniaAmbitionX(dcm_dir)
         scan_session.write_pdf_summary_page(c)
 
         geometric_images = scan_session.get_geometric_images()
@@ -116,6 +126,10 @@ def main():
             mu.log("Found T2(MSE): %s" % type(t2_mse_imageset), LogLevels.LOG_INFO)
             mu.log("\t\t%s" % str(t2_mse_imageset), LogLevels.LOG_INFO)
 
+        dw_imagesets = scan_session.get_dw_image_sets()
+        for dw_imageset in dw_imagesets:
+            mu.log("Found DW: %s" % type(dw_imageset), LogLevels.LOG_INFO)
+            mu.log("\t\t%s" % str(dw_imageset), LogLevels.LOG_INFO)
         # give a visual break in the log
         mu.log("", LogLevels.LOG_INFO)
 
@@ -132,8 +146,9 @@ class ImageCatetory(IntEnum):
     T1_VFA = 4
     T2_MSE = 5
     T2STAR_ME = 6
-    SECONDARY = 7
-    UNKNOWN = 8
+    DW = 7
+    SECONDARY = 8
+    UNKNOWN = 9
 IMAGE_SECONDARY_STR = "secondary"       # this is when an image may have multiple secondary (i.e. not the magnitude image)
 IMAGE_UNKNOWN_STR = "unknown"
 # Category details dictionary
@@ -144,6 +159,7 @@ IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.T1_VIR] = ("t1_vir", ["InversionTime"
 IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.T1_VFA] = ("t1_vfa", ["FlipAngle", "RepetitionTime"])
 IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.T2_MSE] = ("t2_mse", None)
 IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.T2STAR_ME] = ("t2star_me", None)
+IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.DW] = ("dw", None)
 IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.SECONDARY] = (IMAGE_SECONDARY_STR, None)
 IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.UNKNOWN] = (IMAGE_UNKNOWN_STR, None)
 # Dictionary of strings for labeling of different categories (i.e dataframes entries, foldername prefixes)
@@ -178,6 +194,7 @@ class ScanSessionAbstract(ABC):
         self.vfa_imageset_list = None
         self.t2_imageset_list = None
         self.t2star_imageset_list = None
+        self.dw_imageset_list = None
 
         # force the scan session to use another type of image as the geometric image for ROI detection
         self.force_geometry_imageset = force_geometry_imageset
@@ -201,7 +218,8 @@ class ScanSessionAbstract(ABC):
                                        self.get_t1_vir_series_UIDs(),
                                        self.get_t1_vfa_series_UIDs(),
                                        self.get_t2_series_UIDs(),
-                                       self.get_t2star_series_UIDs()]
+                                       self.get_t2star_series_UIDs(),
+                                       self.get_dw_series_UIDs()]
 
         for category_name, pd_index_list in zip(category_list, series_pd_idx_category_list):
             if pd_index_list is not None:
@@ -340,6 +358,9 @@ class ScanSessionAbstract(ABC):
     @abstractmethod
     def get_t2star_series_UIDs(self):
         return None
+    @abstractmethod
+    def get_dw_series_UIDs(self):
+        return None
 
     # output the categorisation, set grouping & reference images (via the log)
     def log_meta_dataframe(self, show_unknown=True):
@@ -429,7 +450,7 @@ class ScanSessionAbstract(ABC):
                 # sort the slices by slice location before reading by sitk
                 files_sorting.sort(key=lambda x: x[1])
                 files_sorted = [x[0] for x in files_sorting]
-                im = self.__load_image_from_filelist(files_sorted, series_instance_uid,
+                im = self._load_image_from_filelist(files_sorted, series_instance_uid,
                                                      rescale_slope, rescale_intercept,
                                                      row.SeriesDescription)
                 geom_image_list.append(ImageGeometric(geoset_label,
@@ -445,7 +466,7 @@ class ScanSessionAbstract(ABC):
             # construct the proton density images
             mu.log("ScanSessionAbstract::get_proton_density_images(): "
                    "loading proton density images from disk...", LogLevels.LOG_INFO)
-            imageset_data_dict = self.__get_imageset_data_from_df(ImageCatetory.PROTON_DENSITY)
+            imageset_data_dict = self._get_imageset_data_from_df(ImageCatetory.PROTON_DENSITY)
             pd_image_list = []
             for imageset_name, (image_and_metadata_list, ref_geom_image) in imageset_data_dict.items():
                 pd_images, metadata_list, other_list = zip(*image_and_metadata_list)
@@ -472,8 +493,8 @@ class ScanSessionAbstract(ABC):
             # construct the T1 imagesets
             mu.log("ScanSessionAbstract::get_t1_vir_image_sets(): "
                    "loading T1 VIR image sets from disk...", LogLevels.LOG_INFO)
-            imageset_data_dict = self.__get_imageset_data_from_df(ImageCatetory.T1_VIR)
-            self.vir_imageset_list = self.__get_image_sets(imageset_data_dict, ImageCatetory.T1_VIR, n_expected_dcm_tags=2)
+            imageset_data_dict = self._get_imageset_data_from_df(ImageCatetory.T1_VIR)
+            self.vir_imageset_list = self._get_image_sets(imageset_data_dict, ImageCatetory.T1_VIR, n_expected_dcm_tags=2)
         return self.vir_imageset_list
 
     def get_t1_vfa_image_sets(self):
@@ -481,15 +502,15 @@ class ScanSessionAbstract(ABC):
             # construct the T1 imagesets
             mu.log("ScanSessionAbstract::get_t1_vfa_image_sets(): "
                    "loading T1 VFA image sets from disk...", LogLevels.LOG_INFO)
-            imageset_data_dict = self.__get_imageset_data_from_df(ImageCatetory.T1_VFA)
-            self.vfa_imageset_list = self.__get_image_sets(imageset_data_dict, ImageCatetory.T1_VFA, n_expected_dcm_tags=2)
+            imageset_data_dict = self._get_imageset_data_from_df(ImageCatetory.T1_VFA)
+            self.vfa_imageset_list = self._get_image_sets(imageset_data_dict, ImageCatetory.T1_VFA, n_expected_dcm_tags=2)
         return self.vfa_imageset_list
 
     def get_t2_mse_image_sets(self):
         if self.t2_imageset_list is None:
             mu.log("ScanSession::get_t2_image_sets(): "
                    "loading T2 image sets from disk...", LogLevels.LOG_INFO)
-            self.t2_imageset_list = self.__get_echo_image_sets(ImageCatetory.T2_MSE)
+            self.t2_imageset_list = self._get_echo_image_sets(ImageCatetory.T2_MSE)
         return self.t2_imageset_list
 
     def get_t2star_image_sets(self):
@@ -499,8 +520,14 @@ class ScanSessionAbstract(ABC):
             self.t2star_imageset_list = self.__get_echo_image_sets(ImageCatetory.T2STAR_ME)
         return self.t2star_imageset_list
 
+    def get_dw_image_sets(self):
+        if self.dw_imageset_list is None:
+            mu.log("ScanSession::get_dw_image_sets(): "
+                   "loading DW image sets from disk...", LogLevels.LOG_INFO)
+            self.dw_imageset_list = self._get_dw_image_sets(ImageCatetory.DW)
+        return self.dw_imageset_list
 
-    def __get_image_sets(self, imageset_data_dict, category, n_expected_dcm_tags):
+    def _get_image_sets(self, imageset_data_dict, category, n_expected_dcm_tags):
         # acquisition timestamp
         study_date, study_time = self.get_study_date_time()
         imageset_list = []
@@ -518,7 +545,7 @@ class ScanSessionAbstract(ABC):
             scanner_field_strength = other_list[0]["MagneticFieldStrength"]
             # pull out the metadata (inversion recovery times, flip angles, echo times etc.)
             assert len(metadata_list[0]) == n_expected_dcm_tags, \
-                "ScanSessionAbstract::__get_image_sets() - %s should have %d dicom parameters per image, found %d" % (
+                "ScanSessionAbstract::_get_image_sets() - %s should have %d dicom parameters per image, found %d" % (
                 category, len(
                     metadata_list[0]), n_expected_dcm_tags)
             # handle the different types of image sets
@@ -563,13 +590,13 @@ class ScanSessionAbstract(ABC):
                                           scanner_make, scanner_model, scanner_sn, scanner_field_strength,
                                           study_date, study_time)
             else:
-                assert False, "ScanSessionAbstract::__get_image_sets() is only designed to be called by T1-VFA and T1-VIR models, not (%s) imageset category" % category
+                assert False, "ScanSessionAbstract::_get_image_sets() is only designed to be called by T1-VFA and T1-VIR models, not (%s) imageset category" % category
             # create the imageset object and append to return list
             if image_set is not None:
                 imageset_list.append(image_set)
         return imageset_list
 
-    def __get_echo_image_sets(self, category):
+    def _get_echo_image_sets(self, category):
         imageset_list = []
         # acquisition timestamp
         study_date, study_time = self.get_study_date_time()
@@ -618,8 +645,8 @@ class ScanSessionAbstract(ABC):
                 files_sorting.sort(key=lambda x: x[1])
                 files_sorted = [x[0] for x in files_sorting]
 
-                im = self.__load_image_from_filelist(files_sorted, series_uid,
-                                                     rescale_slope, rescale_intercept)
+                im = self._load_image_from_filelist(files_sorted, series_uid,
+                                                    rescale_slope, rescale_intercept)
                 image_list.append(im)
 
             # include any associated geometry image
@@ -655,8 +682,86 @@ class ScanSessionAbstract(ABC):
                                                     scanner_field_strength,
                                                     study_date, study_time))
             else:
-                assert False, "ScanSessionAbstract::__get_echo_image_sets() is only designed to be called by T1-VFA and T1-VIR models, not (%s) imageset category" % category
+                assert False, "ScanSessionAbstract::_get_echo_image_sets() is only designed to be called by T1-VFA and T1-VIR models, not (%s) imageset category" % category
         return imageset_list
+
+    def _get_dw_image_sets(self, category):
+        imageset_list = []
+        # acquisition timestamp
+        study_date, study_time = self.get_study_date_time()
+        # geometric images for linking
+        geom_images = self.get_geometric_images()
+        # get image sets from the dataframe
+        category_name = IMAGE_CAT_STR_DICT[category]
+        cat_df = self.meta_data_df[self.meta_data_df.Category == category_name]
+        imageset_names = cat_df.drop_duplicates(subset=["ImageSet"]).ImageSet
+        # loop over the bval sets
+        for set_name in imageset_names:
+            df_b = cat_df[cat_df.ImageSet == set_name]
+            df_b = df_b.sort_values(by=["DiffusionBValue"])
+            # get the datatype details
+            bits_allocated = df_b.drop_duplicates(subset=["BitsAllocated"]).BitsAllocated.iloc[0]
+            bits_stored = df_b.drop_duplicates(subset=["BitsStored"]).BitsStored.iloc[0]
+            rescale_slope = df_b.drop_duplicates(subset=["RescaleSlope"]).RescaleSlope.iloc[0]
+            rescale_intercept = df_b.drop_duplicates(subset=["RescaleIntercept"]).RescaleIntercept.iloc[0]
+            # scanner details
+            scanner_make = df_b.drop_duplicates(subset=["Manufacturer"]).Manufacturer.iloc[0]
+            scanner_model = df_b.drop_duplicates(subset=["ManufacturerModelName"]).ManufacturerModelName.iloc[0]
+            scanner_sn = df_b.drop_duplicates(subset=["DeviceSerialNumber"]).DeviceSerialNumber.iloc[0]
+            scanner_field_strength = df_b.drop_duplicates(subset=["MagneticFieldStrength"]).MagneticFieldStrength.iloc[0]
+
+            # sort the echos into groups (to handle multiple slices)
+            image_b_val_list = []
+            for index, row in df_b.iterrows():
+                image_b_val_list.append((float(row["DiffusionBValue"]), float(row["RepetitionTime"]),
+                                             row["SeriesInstanceUID"], row["ImageFilePath"], row["SliceLocation"]))
+            image_b_val_list.sort(key=lambda x: x[0])
+            b_value_list, repetition_time_list, series_instance_uids, image_filepaths, slice_locations = zip(
+                *image_b_val_list)
+            # load up each of the echo images
+            unique_bval_list = pd.unique(b_value_list)
+            df_bval_images = pd.DataFrame(
+                columns=["DiffusionBValue", "RepetitionTime", "SeriesUID", "ImageFilePath", "SliceLocation"],
+                data=image_b_val_list)
+            image_list = []
+            for bval in unique_bval_list:
+                series_uid = df_bval_images[df_bval_images["DiffusionBValue"] == bval].SeriesUID.values[0]
+                image_file_path_list = df_bval_images[df_bval_images["DiffusionBValue"] == bval].ImageFilePath
+                image_slice_location_list = df_bval_images[df_bval_images["DiffusionBValue"] == bval].SliceLocation
+                files_sorting = [(fp, slice_loc) for fp, slice_loc in
+                                 zip(image_file_path_list, image_slice_location_list)]
+                # sort the slices by slice location before reading by sitk
+                files_sorting.sort(key=lambda x: x[1])
+                files_sorted = [x[0] for x in files_sorting]
+
+                im = self._load_image_from_filelist(files_sorted, series_uid,
+                                                        rescale_slope, rescale_intercept)
+                image_list.append(im)
+
+            # include any associated geometry image
+            ref_geom_image = None
+            image_set_df = self.meta_data_df.drop_duplicates(subset=["ImageSet"])
+            ref_geom_label = image_set_df[image_set_df.ImageSet == set_name].ReferenceGeometryImage.iloc[0]
+            for g_im in geom_images:
+                if g_im.get_label() == ref_geom_label:
+                    ref_geom_image = g_im
+            # create the appropriate ImageSet based on category
+            if category == ImageCatetory.DW:
+                imageset_list.append(ImageSetDW(set_name,
+                                                   image_list,
+                                                   unique_bval_list,
+                                                   repetition_time_list,
+                                                   ref_geom_image,
+                                                   series_instance_uids,
+                                                   bits_allocated, bits_stored,
+                                                   rescale_slope, rescale_intercept,
+                                                   scanner_make, scanner_model, scanner_sn,
+                                                   scanner_field_strength,
+                                                   study_date, study_time))
+            else:
+                assert False, "ScanSessionAbstract::_get_dw_image_sets() is only designed to be called by DWI models, not (%s) imageset category" % category
+        return imageset_list
+
 
     def get_spin_echo_series(self, df=None):
         if df is None:
@@ -693,10 +798,10 @@ class ScanSessionAbstract(ABC):
 
     # general helper function to get image sets and associated metadata from the ordered/grouped metadataframe
     # and include any referenced geometric images (ImageGeometric)
-    def __get_imageset_data_from_df(self, image_category):
+    def _get_imageset_data_from_df(self, image_category):
         geom_images = []
         # !! careful editing this (could lead to recursion bug : self.get_geometric_images() calls ...
-        #                                                        ...       __get_imageset_data_from_df
+        #                                                        ...       _get_imageset_data_from_df
         if image_category != ImageCatetory.GEOMETRY_3D:
             # load all geometry images for linking
             geom_images = self.get_geometric_images()
@@ -734,7 +839,7 @@ class ScanSessionAbstract(ABC):
                 files_sorting.sort(key=lambda x: x[1])
                 files_sorted = [x[0] for x in files_sorting]
 
-                im = self.__load_image_from_filelist(files_sorted, series_uid,
+                im = self._load_image_from_filelist(files_sorted, series_uid,
                                                      rescale_slope, rescale_intercept,
                                                      row.SeriesDescription)
 
@@ -761,7 +866,7 @@ class ScanSessionAbstract(ABC):
             imageset_data_dict[set_name] = (image_and_metadata_list, ref_geom_image)
         return imageset_data_dict
 
-    def __load_image_from_filelist(self, files_sorted, series_uid,
+    def _load_image_from_filelist(self, files_sorted, series_uid,
                                    rescale_slope, rescale_intercept,
                                    series_descrp=None):
         # Create a temp directory and symlink all of the files,
@@ -786,18 +891,18 @@ class ScanSessionAbstract(ABC):
             assert isinstance(rescale_slope, float) and isinstance(rescale_intercept, float), \
                 "Scale[%s]/Intercept[%s] not floats" % (str(rescale_slope), str(rescale_intercept))
             if np.isnan(rescale_slope) or np.isnan(rescale_intercept):
-                mu.log("ScanSession::__load_image_from_filelist(): Scale[%s]/Intercept[%s] are invalid"
+                mu.log("ScanSession::_load_image_from_filelist(): Scale[%s]/Intercept[%s] are invalid"
                        " setting them to [m=1.0, c=0.0]" % (str(rescale_slope), str(rescale_intercept)),
                        LogLevels.LOG_WARNING)
                 rescale_slope = 1.0
                 rescale_intercept = 0.0
-            im = self.__rescale_image_to_raw(im, rescale_slope, rescale_intercept,
+            im = self._rescale_image_to_raw(im, rescale_slope, rescale_intercept,
                                              series_decript=series_descrp)
         return im
 
-    def __rescale_image_to_raw(self, im, rescale_slope, rescale_intercept, series_decript=None):
+    def _rescale_image_to_raw(self, im, rescale_slope, rescale_intercept, series_decript=None):
         if not (np.isclose(rescale_slope, 1.0) and np.isclose(rescale_intercept, 0.0)):
-            mu.log("ScanSession::__get_imageset_data_from_df(%s): rescaling image back to raw data" %
+            mu.log("ScanSession::_get_imageset_data_from_df(%s): rescaling image back to raw data" %
                    series_decript, LogLevels.LOG_INFO)
             im_arr = sitk.GetArrayFromImage(im)
             im_arr = (im_arr - rescale_intercept) / rescale_slope
@@ -809,7 +914,37 @@ class ScanSessionAbstract(ABC):
             return im_raw
         return im
 
-class ScanSessionTemplate(ScanSessionAbstract):
+
+class SystemSessionAbstract(ScanSessionAbstract):
+    def __init__(self, dicom_dir, force_geometry_imageset=None):
+        super().__init__(dicom_dir, force_geometry_imageset)
+
+    def get_dw_series_UIDs(self):
+        return None
+
+class DiffusionSessionAbstract(ScanSessionAbstract):
+    def __init__(self, dicom_dir, force_geometry_imageset=None):
+        super().__init__(dicom_dir, force_geometry_imageset)
+
+    def get_proton_density_series_UIDs(self):
+        return None
+
+    def get_t1_vir_series_UIDs(self):
+        return None
+
+    def get_t1_vfa_series_UIDs(self):
+        return None
+
+    def get_t2_series_UIDs(self):
+        return None
+
+    def get_t2star_series_UIDs(self):
+        return None
+
+#CONCRETE CLASSES
+
+#TEMPLATE SYSTEM PHANTOM CLASS FOR NEW ADDITIONS
+class SystemSessionTemplate(SystemSessionAbstract):
     def __init__(self, dicom_dir):
         super().__init__(dicom_dir)
 
@@ -832,7 +967,39 @@ class ScanSessionTemplate(ScanSessionAbstract):
         return None
 
 
-class ScanSessionPhilipsIngeniaAmbitionX(ScanSessionAbstract):
+#TEMPLATE DIFFUSION PHANTOM CLASS FOR NEW ADDITIONS
+class DiffusionSessionTemplate(DiffusionSessionAbstract):
+    def __init__(self, dicom_dir):
+        super().__init__(dicom_dir)
+
+    def get_geometric_series_UIDs(self):
+        return None
+
+    def get_dw_series_UIDs(self):
+        return None
+
+
+
+class DiffusionSessionPhilipsIngeniaAmbitionX(DiffusionSessionAbstract):
+    def __init__(self, dicom_dir):
+        super().__init__(dicom_dir)
+
+    def get_geometric_series_UIDs(self):
+        df_ge_3D = super().get_3D_series()
+        df_ge_3D_1mm = df_ge_3D[df_ge_3D.SliceThickness == 1]
+        df_ge_3D_1mm_psn = df_ge_3D_1mm[df_ge_3D_1mm["SequenceName"].str.match(r"(?=.*\bT1FFE\b)") == True]
+        return df_ge_3D_1mm_psn.index
+
+    def get_dw_series_UIDs(self):
+        df_2D = super().get_2D_series()
+        df_2D_thick = df_2D[df_2D.SliceThickness == 4]
+        df_2D_psn = df_2D_thick[df_2D_thick["SequenceName"].str.match(r"(?=.*\bDwiSE\b)") == True]
+        df_2D_psn = df_2D_psn.sort_values(["DiffusionBValue"])
+        return df_2D_psn.index
+
+
+
+class SystemSessionPhilipsIngeniaAmbitionX(SystemSessionAbstract):
     def __init__(self, dicom_dir):
         super().__init__(dicom_dir)
 
@@ -847,7 +1014,7 @@ class ScanSessionPhilipsIngeniaAmbitionX(ScanSessionAbstract):
         df_2D_thick = df_2D[df_2D.SliceThickness == 6]
         df_2D_psn = df_2D_thick[df_2D_thick["SequenceName"].str.match(r"(?=.*\bTIR\b)") == True]
         df_2D_psn = df_2D_psn[df_2D_psn["ImageType"].str.match(r"(?=.*\bM_IR\b)") == True]
-        df_2D_psn = df_2D_psn.sort_values(by=["InversionTime"])
+        df_2D_psn = df_2D_psn.sort_values(["InversionTime", "RescaleIntercept"], ascending= [True,False])
         return df_2D_psn.index
 
     def get_t1_vfa_series_UIDs(self):
@@ -873,7 +1040,7 @@ class ScanSessionPhilipsIngeniaAmbitionX(ScanSessionAbstract):
         return None
 
 
-class ScanSessionSiemensSkyra(ScanSessionAbstract):
+class SystemSessionSiemensSkyra(SystemSessionAbstract):
     def __init__(self, dicom_dir):
         super().__init__(dicom_dir)
 
@@ -921,7 +1088,8 @@ class ScanSessionSiemensSkyra(ScanSessionAbstract):
 
 
 
-class ScanSessionPhilipsMarlin(ScanSessionAbstract):
+
+class SystemSessionPhilipsMarlin(SystemSessionAbstract):
     def __init__(self, dicom_dir):
         super().__init__(dicom_dir)
 
@@ -967,7 +1135,7 @@ class ScanSessionPhilipsMarlin(ScanSessionAbstract):
         return None
 
 
-class ScanSessionAucklandCAM(ScanSessionAbstract):
+class SystemSessionAucklandCAM(ScanSessionAbstract):
     def __init__(self, dicom_dir):
         super().__init__(dicom_dir, force_geometry_imageset=ImageCatetory.T1_VFA)
 
@@ -1090,7 +1258,7 @@ class DICOMSearch(object):
                              'SliceThickness', 'FlipAngle',
                              'EchoTime', 'EchoNumbers', 'RepetitionTime', 'PixelBandwidth',
                              'NumberOfPhaseEncodingSteps', 'PercentSampling', 'SliceLocation',
-                             "SequenceName", "MagneticFieldStrength", "InversionTime"]
+                             "SequenceName", "MagneticFieldStrength", "InversionTime", "DiffusionBValue"]
         alternatives_dict = {"SequenceName" : [special_tag, "PulseSequenceName"] }
                              # "ScanningSequence": ["EchoPulseSequence"], #[EchoPulseSequence"],
                              # "MRAcquisitionType": ["VolumetricProperties"],

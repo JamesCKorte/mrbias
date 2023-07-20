@@ -116,15 +116,15 @@ class MRBIAS(object):
         scan_protocol = self.conf.get_scan_protocol_for_sorting()
         ss = None
         if scan_protocol == "siemens_skyra_3p0T":
-            ss = scan_session.ScanSessionSiemensSkyra(dicom_directory)
+            ss = scan_session.SystemSessionSiemensSkyra(dicom_directory)
         elif scan_protocol == "philips_marlin_1p5T":
-            ss = scan_session.ScanSessionPhilipsMarlin(dicom_directory)
+            ss = scan_session.SystemSessionPhilipsMarlin(dicom_directory)
         elif scan_protocol == "auckland_cam_3p0T":
-            ss = scan_session.ScanSessionAucklandCAM(dicom_directory)
+            ss = scan_session.SystemSessionAucklandCAM(dicom_directory)
         elif scan_protocol == "siemens_skyra_erin_3p0T":
-            ss = scan_session.ScanSessionSiemensSkyraErin(dicom_directory)
+            ss = scan_session.SystemSessionSiemensSkyraErin(dicom_directory)
         elif scan_protocol == "philips_ingenia_ambitionX":
-            ss = scan_session.ScanSessionPhilipsIngeniaAmbitionX(dicom_directory)
+            ss = scan_session.SystemSessionPhilipsIngeniaAmbitionX(dicom_directory)
         else:
             mu.log("MR-BIAS::analyse(): skipping analysis as unknown 'scan_protocol' defined for DICOM sorting",
                    LogLevels.LOG_WARNING)

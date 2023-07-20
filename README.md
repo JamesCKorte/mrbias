@@ -1,16 +1,22 @@
-# MR-BIAS
-Magnetic Resonance BIomarker Accreditation Software (MR-BIAS) is an automated tool for extracting quantitative MR parameters from NIST/ISMRM system phantom images. The software has been tested on images from a 3T Siemens Skyra, we would like to add support for images from other scanners, for enquiries please contact us (james.korte@petermac.org). 
+# Welcome to MR-BIAS!
+Magnetic Resonance BIomarker Accreditation Software (MR-BIAS) is an automated tool for extracting quantitative MR parameters from NIST/ISMRM system phantom images. The software has been tested on images from a 3T Siemens Skyra, we are currently working with the community to add support for images from other scanners, for enquiries please contact us (james.korte@petermac.org). 
+
+### Documentation
+We provide some basic instructions for using the software, 
+- [Installation](./README.md#installation)
+- [Basic Usage](./README.md#usage)
+- [Tutorials](./README.md#modifying-the-software-to-your-needs)
+    - [Tutorial 1: adding a new scanner or acquisition protocol](./documentation/adding_a_new_scanner.md)
+    - [Tutorial 2: adding a new region of interest template for a different phantom](./documentation/adding_a_roi_template.md)
+    - [Tutorial 3: adding a new signal model for curve fitting data](./documentation/adding_a_new_model.md)
 
 ### Citation
-Please reference the following technical note:
+If you find our software useful for your research, please reference the following:
 
 *Korte, J.C., Chin, Z., Carr, M., Holloway, L. and Franich, R.D.*, 2023. [Magnetic resonance biomarker assessment software (MR-BIAS): an automated open-source tool for the ISMRM/NIST system phantom](https://iopscience.iop.org/article/10.1088/1361-6560/acbcbb). Physics in Medicine and Biology.
 
 
-### Minimum Requirements
-We have tested the software with Python v3.7 and recommend installing into a virtual environment.
-
-## Installation
+# Installation
 The software can be downloaded from github with the following command
 ```
 git clone https://github.com/JamesCKorte/mrbias.git
@@ -24,12 +30,21 @@ The software makes use of existing python packages which can be installed with t
 python -m pip install -r requirements.txt
 ```
 
-## Usage
+### Minimum Requirements
+We have tested the software with Python v3.7 and recommend installing into a virtual environment.
+
+# Usage
 A basic example and test data are included, to verify MR-BIAS is running on your system, please run the example script with
 ```
 python mr_bias_example_1.py
 ```
 The example program analyses two ISMRM/NIST system phantom image datasets and will generate two reports which can be found in the "mrbias\output" folder. 
+
+## Modifying the software to your needs
+We are working on a number of tutorials to help users modify the software and contribute to this project. So far these include
+- [Tutorial 1: adding a new scanner or acquisition protocol](./documentation/adding_a_new_scanner.md)
+- [Tutorial 2: adding a new region of interest template for a different phantom](./documentation/adding_a_roi_template.md)
+- [Tutorial 3: adding a new signal model for curve fitting data](./documentation/adding_a_new_model.md)
 
 
 

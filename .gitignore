@@ -11,6 +11,7 @@ output/
 tests/end_to_end_test/PMCC_SIEMENS*
 utils/*.pdf
 utils/*.csv
+mrbias/*.pdf
 
 # Distribution / packaging
 .Python

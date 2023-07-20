@@ -1135,7 +1135,7 @@ class SystemSessionPhilipsMarlin(SystemSessionAbstract):
         return None
 
 
-class SystemSessionAucklandCAM(ScanSessionAbstract):
+class SystemSessionAucklandCAM(SystemSessionAbstract):
     def __init__(self, dicom_dir):
         super().__init__(dicom_dir, force_geometry_imageset=ImageCatetory.T1_VFA)
 
@@ -1169,7 +1169,7 @@ class SystemSessionAucklandCAM(ScanSessionAbstract):
         return df_ge_3D_multiEcho_orig.index
 
 
-class ScanSessionSiemensSkyraErin(ScanSessionAbstract):
+class SystemSessionSiemensSkyraErin(SystemSessionAbstract):
     def __init__(self, dicom_dir):
         super().__init__(dicom_dir)
 
@@ -1291,7 +1291,7 @@ class DICOMSearch(object):
                                     break
                         if not alt_found:
                             data_row.append(None)  # if doesn't exist so data field is left blank
-                            if not (tag_name in ["InversionTime", "RescaleSlope", "RescaleIntercept", "PulseSequenceName", "SequenceName"]):
+                            if not (tag_name in ["InversionTime", "RescaleSlope", "RescaleIntercept", "PulseSequenceName", "SequenceName", "DiffusionBValue"]):
                                 mu.log("DICOMSearch::__init__(): unable to locate dicom tag (%s) in file (%s)" %
                                        (tag_name, filepath), LogLevels.LOG_WARNING)
                                 #     for d in available_tags:

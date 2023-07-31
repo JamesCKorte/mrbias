@@ -229,7 +229,7 @@ class ROITemplate(object):
         # Create a numpy image array of zeros with the same size as the geometric image
         fixed_geo_arr = sitk.GetArrayFromImage(self.image)
         fixed_geo_spacing = np.array(self.image.GetSpacing())
-        mask_arr = np.zeros_like(fixed_geo_arr, dtype = np.uint)
+        mask_arr = np.zeros_like(fixed_geo_arr, dtype = np.uint16)
         for roi_dx, roi in roi_dict.items():
             # rely on the concrete class to draw its own ROI on the mask image
             roi.draw(mask_arr, fixed_geo_spacing)

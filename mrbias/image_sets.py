@@ -242,7 +242,7 @@ class ImageSetAbstract(ABC):
                            interpolation='none',
                            alpha=0.7)
         ax_glob.axis('off')
-        ticks = list(range(np.min(roi_vals), np.max(roi_vals) + np.uint64(1)))
+        ticks = list(range(np.min(roi_vals), np.max(roi_vals) + np.uint16(1)))
         ticklabels = [ROI_IDX_LABEL_MAP[x] for x in ticks]
         cb = plt.colorbar(mappable=i, ax=ax_glob,
                           ticks=ticks)

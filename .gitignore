@@ -12,6 +12,7 @@ tests/end_to_end_test/PMCC_SIEMENS*
 utils/*.pdf
 utils/*.csv
 mrbias/*.pdf
+mrbias/roi_reference_values/caliber_system_phantom/batch1_sn_lte_130-0041/*.pdf
 
 # Distribution / packaging
 .Python

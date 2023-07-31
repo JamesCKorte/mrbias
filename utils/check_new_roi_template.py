@@ -69,7 +69,7 @@ import mrbias.misc_utils as mu
 #################################################################################
 ROI_TEMPLATE_NAME = "siemens_skyra_3p0T"
 DICOM_DIRECTORY = os.path.join(base_dir, "data", "mrbias_testset_B")
-scan_session = ss.ScanSessionSiemensSkyra(DICOM_DIRECTORY)
+scan_session = ss.SystemSessionSiemensSkyra(DICOM_DIRECTORY)
 registration_method = roi_detect.RegistrationOptions.TWOSTAGE_MSMEGS_CORELGD # default
 #################################################################################
 
@@ -88,6 +88,7 @@ t1_vir_imagesets = scan_session.get_t1_vir_image_sets()
 t1_vfa_imagesets = scan_session.get_t1_vfa_image_sets()
 t2_mse_imagesets = scan_session.get_t2_mse_image_sets()
 t2star_imagesets = scan_session.get_t2star_image_sets()
+dw_imagesets = scan_session.get_dw_image_sets()
 
 
 # define the test template
@@ -119,6 +120,9 @@ for t2_mse_imageset in t2_mse_imagesets:
 for t2star_imageset in t2star_imagesets:
     t2star_imageset.update_ROI_mask()  # trigger a mask update
     t2star_imageset.write_roi_pdf_page(c)
+for dw_imageset in dw_imagesets:
+    dw_imageset.update_ROI_mask()  # trigger a mask update
+    dw_imageset.write_roi_pdf_page(c)
 
 
 

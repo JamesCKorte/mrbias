@@ -104,7 +104,7 @@ def main():
     # -----------------------------------------------------
     # parse a dicom directory for test imaging data
     test_dcm_dir = os.path.join(mu.reference_data_directory(), "mrbias_testset_A")
-    ss = scanner.ScanSessionSiemensSkyra(test_dcm_dir)
+    ss = scanner.SystemSessionSiemensSkyra(test_dcm_dir)
     # if a valid scan protocol found load up relevant image sets
     if ss is not None:
         mu.log(" loading image sets ..." , LogLevels.LOG_INFO)

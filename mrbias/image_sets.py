@@ -242,7 +242,7 @@ class ImageSetAbstract(ABC):
                            interpolation='none',
                            alpha=0.7)
         ax_glob.axis('off')
-        ticks = list(range(np.min(roi_vals), np.max(roi_vals) + 1))
+        ticks = list(range(np.min(roi_vals), np.max(roi_vals) + np.uint64(1)))
         ticklabels = [ROI_IDX_LABEL_MAP[x] for x in ticks]
         cb = plt.colorbar(mappable=i, ax=ax_glob,
                           ticks=ticks)
@@ -396,6 +396,7 @@ class ImageGeometric(ImageBasic):
         self.roi_mask_image_PD = None
         self.roi_mask_image_T1 = None
         self.roi_mask_image_T2 = None
+        self.roi_mask_image_DW = None
     def set_proton_density_mask(self, mask_sitk_image):
         assert isinstance(mask_sitk_image, sitk.Image), "ImageGeometric::set_proton_density_mask() expects a" \
                                                         "SimpleITK image"
@@ -420,12 +421,25 @@ class ImageGeometric(ImageBasic):
         mu.log("ImageGeometric::set_T2_mask(): detected mask value range [%d, %d]" %
                (np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
         self.roi_mask_image_T2 = mask_sitk_image
+    def set_DW_mask(self, mask_sitk_image):
+        assert isinstance(mask_sitk_image, sitk.Image), "ImageGeometric::set_DW_mask() expects a" \
+                                                        "SimpleITK image"
+        # check the geom image and mask are on the same grid
+        assert check_image_same_grid(self.get_image(), mask_sitk_image), \
+            "ImageGeometric::set_DW_mask(): mask image grid does not match the geometric image!"
+        mask_arr = sitk.GetArrayFromImage(mask_sitk_image)
+        mu.log("ImageGeometric::set_DW_mask(): detected mask value range [%d, %d]" %
+               (np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
+        self.roi_mask_image_DW = mask_sitk_image
     def get_T1_mask(self):
         assert self.roi_mask_image_T1 is not None, "ImageGeometric::get_T1_mask(): no mask available"
         return self.roi_mask_image_T1
     def get_T2_mask(self):
         assert self.roi_mask_image_T2 is not None, "ImageGeometric::get_T2_mask(): no mask available"
         return self.roi_mask_image_T2
+    def get_DW_mask(self):
+        assert self.roi_mask_image_DW is not None, "ImageGeometric::get_DW_mask(): no mask available"
+        return self.roi_mask_image_DW
 
 
 class ImageProtonDensity(ImageBasic):
@@ -632,10 +646,10 @@ class ImageSetDW(ImageSetAbstract):
         if not (len(self.image_list) > 0):
             mu.log("ImageSetDW::update_ROI_mask(): no images in set", LogLevels.LOG_WARNING)
             return None
-        mask_arr = sitk.GetArrayFromImage(self.geometry_image.get_T2_mask())
+        mask_arr = sitk.GetArrayFromImage(self.geometry_image.get_DW_mask())
         mu.log("ImageSetDW[%s]::update_ROI_mask() : orig mask values [%d, %d]" %
                (self.get_set_label(), np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
-        resampled_mask = sitk.Resample(self.geometry_image.get_T2_mask(),
+        resampled_mask = sitk.Resample(self.geometry_image.get_DW_mask(),
                                        self.image_list[0],
                                        sitk.Euler3DTransform(), sitk.sitkNearestNeighbor)
         mask_arr = sitk.GetArrayFromImage(resampled_mask)

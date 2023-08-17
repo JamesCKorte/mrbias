@@ -517,7 +517,7 @@ class ScanSessionAbstract(ABC):
         if self.t2star_imageset_list is None:
             mu.log("ScanSession::get_t2star_image_sets(): "
                    "loading T2star image sets from disk...", LogLevels.LOG_INFO)
-            self.t2star_imageset_list = self.__get_echo_image_sets(ImageCatetory.T2STAR_ME)
+            self.t2star_imageset_list = self._get_echo_image_sets(ImageCatetory.T2STAR_ME)
         return self.t2star_imageset_list
 
     def get_dw_image_sets(self):

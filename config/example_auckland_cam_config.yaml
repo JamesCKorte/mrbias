@@ -30,7 +30,9 @@ dicom_sorting:
 # ====================================================================================================================
 roi_detection:
   template_name: "systemlite_siemens_vida_3p0T"   # options include [siemens_skyra_3p0T, systemlite_siemens_vida_3p0T]
+  registration_method: "correl-GD"
   save_mask_images: False                         # future feature (not implemented)
+  partial_fov: True
 
 
 # ====================================================================================================================

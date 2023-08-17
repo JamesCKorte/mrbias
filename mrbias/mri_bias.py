@@ -184,6 +184,8 @@ class MRBIAS(object):
             roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_skyra_3p0T")
         elif roi_template == "systemlite_siemens_vida_3p0T":
             roi_template_dir = os.path.join(mu.reference_template_directory(), "systemlite_siemens_vida_3p0T")
+        elif roi_template == "systemlite_siemens_vida_3p0T_180degrees":
+            roi_template_dir = os.path.join(mu.reference_template_directory(), "systemlite_siemens_vida_3p0T_180degrees")
         # ... add others
         if roi_template is None:
             mu.log("MR-BIAS::analyse(): skipping analysis as unknown 'roi_template' defined for ROI detection",
@@ -202,6 +204,8 @@ class MRBIAS(object):
                     reg_method = roi_detect.RegistrationOptions.TWOSTAGE_MSMEGS_CORELGD
                 elif roi_reg_method == "mattesMI-GD":
                     reg_method = roi_detect.RegistrationOptions.MMI_GRADIENTDESCENT
+                elif roi_reg_method == "correl-GD":
+                    reg_method = roi_detect.RegistrationOptions.COREL_GRADIENTDESCENT
                 assert reg_method is not None, "MR-BIAS::analyse(): invalid ROI registration method selected - please check your configuration file"
                 roi_detector = roi_detect.ROIDetector(geom_image, roi_template_dir,
                                                       registration_method=reg_method,

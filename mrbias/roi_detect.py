@@ -801,7 +801,7 @@ class RegistrationMSMEGridSearch(RegistrationMethodAbstract):
         R.SetMetricSamplingPercentage(0.001)
         R.SetMetricSamplingStrategy(R.REGULAR)
         # Number of samples for each rotational axis, 360 divided by this number gives you the angle 'incremented'
-        sample_per_axis = 24
+        sample_per_axis = 24 # 24 is the default
         # Note: Order of parameters is ( x-rotation, y-rotation, z-rotation, x, y, z)
         R.SetOptimizerAsExhaustive([sample_per_axis // 2, sample_per_axis // 2, sample_per_axis // 4,
                                     0, 0, 0])

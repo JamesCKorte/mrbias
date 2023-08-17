@@ -63,6 +63,11 @@ T2_ROI_LABEL_IDX_MAP = OrderedDict()
 for i in range(14):
     ROI_IDX_LABEL_MAP[i+14+1] = "t2_roi_%d" % (i+1)
     T2_ROI_LABEL_IDX_MAP["t2_roi_%d" % (i+1)] = i+14+1
+
+DW_ROI_LABEL_IDX_MAP = OrderedDict()
+for i in range(13):
+    ROI_IDX_LABEL_MAP[i+28+1] = "dw_roi_%d" % (i+1)
+    DW_ROI_LABEL_IDX_MAP["dw_roi_%d" % (i+1)] = i+28+1
 # create a reverse lookup
 ROI_LABEL_IDX_MAP = {v: k for k, v in ROI_IDX_LABEL_MAP.items()}
 
@@ -75,12 +80,16 @@ class ColourSettings(object):
         self.norm_t1 = mpl.colors.Normalize(vmin=np.min(t1_roi_dx_list)-1, vmax=np.max(t1_roi_dx_list)+1)
         t2_roi_dx_list = list(T2_ROI_LABEL_IDX_MAP.values())
         self.norm_t2 = mpl.colors.Normalize(vmin=np.min(t2_roi_dx_list)-1, vmax=np.max(t2_roi_dx_list)+1)
+        dw_roi_dx_list = list(DW_ROI_LABEL_IDX_MAP.values())
+        self.norm_dw = mpl.colors.Normalize(vmin=np.min(dw_roi_dx_list)-1, vmax=np.max(dw_roi_dx_list)+1)
 
     def get_ROI_colour(self, roi_label):
         if roi_label in T1_ROI_LABEL_IDX_MAP.keys():
             return self.cmap(self.norm_t1(T1_ROI_LABEL_IDX_MAP[roi_label]))
         elif roi_label in T2_ROI_LABEL_IDX_MAP.keys():
             return self.cmap(self.norm_t2(T2_ROI_LABEL_IDX_MAP[roi_label]))
+        elif roi_label in DW_ROI_LABEL_IDX_MAP.keys():
+            return self.cmap(self.norm_dw(DW_ROI_LABEL_IDX_MAP[roi_label]))
         else:
             log("ColourSettings::get_ROI_colour(): label %s not found returning default black" % roi_label,
                 LogLevels.LOG_WARNING)

@@ -50,7 +50,7 @@ if str(root) not in sys.path:
 # import required mrbias modules
 from mrbias import misc_utils as mu
 from mrbias.misc_utils import LogLevels
-from mrbias.misc_utils import ROI_IDX_LABEL_MAP, T1_ROI_LABEL_IDX_MAP, T2_ROI_LABEL_IDX_MAP
+from mrbias.misc_utils import ROI_IDX_LABEL_MAP, T1_ROI_LABEL_IDX_MAP, T2_ROI_LABEL_IDX_MAP, DW_ROI_LABEL_IDX_MAP
 import mrbias.scan_session as scan_session
 import mrbias.image_sets as image_sets
 
@@ -58,6 +58,7 @@ import mrbias.image_sets as image_sets
 # for future expansion / different phantoms
 class ROITypeOptions(IntEnum):
     SPHERE = 1
+    CYLINDER = 2
 
 class RegistrationOptions(IntEnum):
     COREL_GRADIENTDESCENT = 1
@@ -75,7 +76,7 @@ def main():
 
     # target images to test (skyra)
     dcm_dir_a = os.path.join(mu.reference_data_directory(), "mrbias_testset_B")
-    ss = scan_session.ScanSessionSiemensSkyra(dcm_dir_a)
+    ss = scan_session.SystemSessionSiemensSkyra(dcm_dir_a)
     test_geometric_images = ss.get_geometric_images()
     test_hard = test_geometric_images[0]
     test_easy = test_geometric_images[1]
@@ -121,16 +122,20 @@ class ROITemplate(object):
     def __init__(self, template_dir,
                  dcm_subdir="dicom",
                  t1_rois_file="default_T1_rois.yaml",
-                 t2_rois_file="default_T2_rois.yaml"):
+                 t2_rois_file="default_T2_rois.yaml",
+                 dw_rois_file="default_DW_rois.yaml"):
         dcm_dir = os.path.join(template_dir, dcm_subdir)
         t1_yaml_file = os.path.join(template_dir, t1_rois_file)
         t2_yaml_file = os.path.join(template_dir, t2_rois_file)
+        dw_yaml_file = os.path.join(template_dir, dw_rois_file)
         if not os.path.isdir(dcm_dir):
             mu.log("ROITemplate::__init__(): invalid dicom dir : %s" % dcm_dir, LogLevels.LOG_WARNING)
         if not os.path.isfile(t1_yaml_file):
             mu.log("ROITemplate::__init__(): invalid t1 roi yaml file : %s" % t1_yaml_file, LogLevels.LOG_WARNING)
         if not os.path.isfile(t2_yaml_file):
             mu.log("ROITemplate::__init__(): invalid t2 roi yaml file : %s" % t2_yaml_file, LogLevels.LOG_WARNING)
+        if not os.path.isfile(dw_yaml_file):
+            mu.log("ROITemplate::__init__(): invalid dw roi yaml file : %s" % dw_yaml_file, LogLevels.LOG_WARNING)
         # load the image file
         mu.log("ROITemplate::init(): loading template geometry image from DCM dir: %s" %
                dcm_dir, LogLevels.LOG_INFO)
@@ -138,14 +143,26 @@ class ROITemplate(object):
         # parse the ROI yaml files
         self.t1_roi_dict = self.parse_t1_yaml(t1_yaml_file)
         self.t2_roi_dict = self.parse_t2_yaml(t2_yaml_file)
+        self.dw_roi_dict = self.parse_dw_yaml(dw_yaml_file)
 
     def parse_t1_yaml(self, yaml_file):
         return self.__parse_roi_yaml_file(yaml_file, T1_ROI_LABEL_IDX_MAP)
     def parse_t2_yaml(self, yaml_file):
         return self.__parse_roi_yaml_file(yaml_file, T2_ROI_LABEL_IDX_MAP)
+    def parse_dw_yaml(self, yaml_file):
+        return self.__parse_roi_yaml_file(yaml_file, DW_ROI_LABEL_IDX_MAP)
+
     def __parse_roi_yaml_file(self, yaml_file, roi_label_idx_map):
         roi_dict = OrderedDict()
-        in_dict = yaml.full_load(open(yaml_file))
+
+        try:
+            with open(yaml_file) as file:
+                in_dict = yaml.full_load(file)
+        except FileNotFoundError:
+            mu.log("Error: The file '%s' does not exist." %
+               yaml_file, LogLevels.LOG_INFO)
+            in_dict = OrderedDict()
+
         for roi_label, roi_dx in roi_label_idx_map.items():
             if roi_label in in_dict.keys():
                 # found in yaml file
@@ -167,6 +184,25 @@ class ROITemplate(object):
                                                                  "ctr_vox_coords expected datatype is list (not %s)" % \
                                                                  type(ctr_vox_coords)
                         roi_dict[roi_dx] = ROISphere(roi_label, roi_dx, ctr_vox_coords, roi_radius_mm)
+                    if roi_type == "cylinder":
+                        # check all cylinder fields are available and create Cylindrical ROI
+                        for field in ['roi_radius_mm', 'ctr_vox_coords', 'roi_height_mm']:
+                            if not (field in yaml_roi.keys()):
+                                mu.log("ROITemplate::__parse_roi_yaml_file(): skipping ROI(%s) no expected field '%s' "
+                                       "specified in yaml file : %s" % (roi_label, field, yaml_file), LogLevels.LOG_WARNING)
+                        roi_radius_mm = yaml_roi["roi_radius_mm"]
+                        ctr_vox_coords = yaml_roi["ctr_vox_coords"]
+                        roi_height_mm = yaml_roi["roi_height_mm"]
+                        assert isinstance(roi_radius_mm, float), "ROITemplate::__parse_roi_yaml_file(): " \
+                                                                 "roi_radius_mm expected datatype is float (not %s)" % \
+                                                                 type(roi_radius_mm)
+                        assert isinstance(ctr_vox_coords, list), "ROITemplate::__parse_roi_yaml_file(): " \
+                                                                 "ctr_vox_coords expected datatype is list (not %s)" % \
+                                                                 type(ctr_vox_coords)
+                        assert isinstance(roi_height_mm, float), "ROITemplate::__parse_roi_yaml_file(): " \
+                                                                 "roi_height_mm expected datatype is float (not %s)" % \
+                                                                 type(roi_height_mm)
+                        roi_dict[roi_dx] = ROICylinder(roi_label, roi_dx, ctr_vox_coords, roi_radius_mm, roi_height_mm)
                 else:
                     mu.log("ROITemplate::__parse_roi_yaml_file(): skipping ROI(%s) no field 'roi_type' "
                            "specified in yaml file : %s" % (roi_label, yaml_file), LogLevels.LOG_WARNING)
@@ -180,6 +216,8 @@ class ROITemplate(object):
         return self.__get_mask_image(self.t1_roi_dict)
     def get_T2_mask_image(self):
         return self.__get_mask_image(self.t2_roi_dict)
+    def get_DW_mask_image(self):
+        return self.__get_mask_image(self.dw_roi_dict)
     def __get_mask_image(self, roi_dict):
         """
         Create a template mask image of the same image grid as the template image
@@ -191,7 +229,7 @@ class ROITemplate(object):
         # Create a numpy image array of zeros with the same size as the geometric image
         fixed_geo_arr = sitk.GetArrayFromImage(self.image)
         fixed_geo_spacing = np.array(self.image.GetSpacing())
-        mask_arr = np.zeros_like(fixed_geo_arr)
+        mask_arr = np.zeros_like(fixed_geo_arr, dtype = np.uint16)
         for roi_dx, roi in roi_dict.items():
             # rely on the concrete class to draw its own ROI on the mask image
             roi.draw(mask_arr, fixed_geo_spacing)
@@ -215,10 +253,17 @@ class ROITemplate(object):
             slice_vec.append(roi.get_slice_dx())
         return int(np.median(np.array(slice_vec)))
 
+    def get_dw_slice_dx(self):
+        slice_vec = []
+        for roi in self.dw_roi_dict.values():
+            slice_vec.append(roi.get_slice_dx())
+        return int(np.median(np.array(slice_vec)))
     def get_t1_roi_values(self):
         return list(T1_ROI_LABEL_IDX_MAP.values())
     def get_t2_roi_values(self):
         return list(T2_ROI_LABEL_IDX_MAP.values())
+    def get_dw_roi_values(self):
+        return list(DW_ROI_LABEL_IDX_MAP.values())
 
 
 
@@ -256,6 +301,30 @@ class ROISphere(ROI):
                                        ((y - self.ctr_vox_coords[1]) / radius_vox[1]) ** 2 +
                                        ((z - self.ctr_vox_coords[2]) / radius_vox[2]) ** 2)
         sphere_mask = distance_from_centre <= 1.0
+        arr[sphere_mask] = self.roi_index
+
+    def get_slice_dx(self):
+        return self.ctr_vox_coords[2]
+
+class ROICylinder(ROI):
+    def __init__(self, label, roi_index,
+                 ctr_vox_coords, radius_mm, height_mm):
+        super().__init__(label, roi_index)
+        self.ctr_vox_coords = ctr_vox_coords
+        self.radius_mm = radius_mm
+        self.height_mm = height_mm
+        mu.log("\t\tROICylinder::__init__(): cylinder (%d : %s) created!" % (roi_index, label), LogLevels.LOG_INFO)
+
+    def draw(self, arr, spacing):
+        # calculate how many voxels to achieve the radius
+        radius_vox = self.radius_mm / spacing
+        height_vox = self.height_mm / spacing
+        z, y, x = np.ogrid[:arr.shape[0],:arr.shape[1],:arr.shape[2]]
+        # Assigns the masked pixels in the copy image array to corresponding pixel values
+        distance_from_centre = np.sqrt(((x - self.ctr_vox_coords[0]) / radius_vox[0]) ** 2 +
+                                       ((y - self.ctr_vox_coords[1]) / radius_vox[1]) ** 2)
+        vertical_height = np.abs((z - self.ctr_vox_coords[2]) / height_vox[0])
+        sphere_mask = (distance_from_centre <= 1.0) & (vertical_height <= 1.0)
         arr[sphere_mask] = self.roi_index
 
     def get_slice_dx(self):
@@ -326,6 +395,7 @@ class ROIDetector(object):
         # store the resulting masks on the geometric image
         self.target_geo_im.set_T1_mask(self.get_detected_T1_mask())
         self.target_geo_im.set_T2_mask(self.get_detected_T2_mask())
+        self.target_geo_im.set_DW_mask(self.get_detected_DW_mask())
 
     def get_detected_T1_mask(self):
         """
@@ -345,6 +415,15 @@ class ROIDetector(object):
         fixed_t2_mask_im = self.get_fixed_T2_mask()
         return self.__get_registered_mask(fixed_t2_mask_im, self.target_geo_im.get_image())
 
+    def get_detected_DW_mask(self):
+        """
+        Returns:
+            SimpleITK.Image: DW mask  in target image space, with 0 for background and 29-41 for detected ROIs
+        """
+        mu.log("ROIDetector::get_detected_DW_mask()", LogLevels.LOG_INFO)
+        fixed_dw_mask_im = self.get_fixed_DW_mask()
+        return self.__get_registered_mask(fixed_dw_mask_im, self.target_geo_im.get_image())
+
     def get_fixed_T1_mask(self):
         """
         Returns:
@@ -360,6 +439,14 @@ class ROIDetector(object):
         """
         mu.log("ROIDetector::get_fixed_T2_mask()", LogLevels.LOG_INFO)
         return self.roi_template.get_T2_mask_image()
+
+    def get_fixed_DW_mask(self):
+        """
+        Returns:
+            SimpleITK.Image: DW mask  in template image space, with 0 for background and 29-41 for detected ROIs
+        """
+        mu.log("ROIDetector::get_fixed_DW_mask()", LogLevels.LOG_INFO)
+        return self.roi_template.get_DW_mask_image()
 
     def visualise_fixed_T1_rois(self, ax=None):
         geo_arr = sitk.GetArrayFromImage(self.fixed_geom_im)
@@ -377,6 +464,14 @@ class ROIDetector(object):
         self.__visualise_rois(geo_arr, roi_arr, t2_slice_dx, t2_roi_values, ax,
                               title="T2 (template)")
 
+    def visualise_fixed_DW_rois(self, ax=None):
+        geo_arr = sitk.GetArrayFromImage(self.fixed_geom_im)
+        roi_arr = sitk.GetArrayFromImage(self.get_fixed_DW_mask())
+        dw_slice_dx = self.roi_template.get_dw_slice_dx()
+        dw_roi_values = self.roi_template.get_dw_roi_values()
+        self.__visualise_rois(geo_arr, roi_arr, dw_slice_dx, dw_roi_values, ax,
+                              title="DW (template)")
+
     def visualise_detected_T1_rois(self, ax=None):
         self.__visualise_transformed_rois(self.get_detected_T1_mask(),
                                           self.roi_template.get_t1_slice_dx(),
@@ -388,6 +483,12 @@ class ROIDetector(object):
                                           self.roi_template.get_t2_slice_dx(),
                                           self.roi_template.get_t2_roi_values(), ax,
                                           title="T2 (detected)")
+
+    def visualise_detected_DW_rois(self, ax=None):
+        self.__visualise_transformed_rois(self.get_detected_DW_mask(),
+                                          self.roi_template.get_dw_slice_dx(),
+                                          self.roi_template.get_dw_roi_values(), ax,
+                                          title="DW (detected)")
 
     def visualise_T1_registration(self, pre_reg_ax=None, post_reg_ax=None, invert_moving=True):
         self.__visualise_registration(self.roi_template.get_t1_slice_dx(),
@@ -401,6 +502,13 @@ class ROIDetector(object):
                                       invert_moving=invert_moving,
                                       title="T2")
 
+    def visualise_DW_registration(self, pre_reg_ax=None, post_reg_ax=None, invert_moving=True):
+        self.__visualise_registration(self.roi_template.get_dw_slice_dx(),
+                                      pre_reg_ax=pre_reg_ax, post_reg_ax=post_reg_ax,
+                                      invert_moving=invert_moving,
+                                      title="DW")
+
+
     # same output as log but to pdf
     def write_pdf_summary_page(self, c, sup_title="ROI Detection: Summary"):
         table_width = 170
@@ -410,30 +518,45 @@ class ROIDetector(object):
         # draw the summary figure
         # -----------------------------------------------------------
         # setup figure
-        f, ((ax1, ax2, ax3, ax4), (ax5, ax6, ax7, ax8)) = plt.subplots(2, 4)
-        if sup_title is not None:
-            f.suptitle(sup_title)
-        f.set_size_inches(14, 6)
-        # draw the template rois on the template image
-        self.visualise_fixed_T1_rois(ax=ax1)
-        self.visualise_fixed_T2_rois(ax=ax5)
-        # draw the registration (pre/post)
-        self.visualise_T1_registration(invert_moving=False, pre_reg_ax=ax2, post_reg_ax=ax3)
-        self.visualise_T2_registration(invert_moving=False, pre_reg_ax=ax6, post_reg_ax=ax7)
-        # visualise the transfromed ROI masks on the target image
-        self.visualise_detected_T1_rois(ax=ax4)
-        self.visualise_detected_T2_rois(ax=ax8)
+        f = None
+        if self.roi_template.dw_roi_dict:
+            f, ((ax1, ax2, ax3, ax4)) = plt.subplots(1, 4)
+            if sup_title is not None:
+                f.suptitle(sup_title)
+            f.set_size_inches(14, 6)
+            #draw the template rois on the template image
+            self.visualise_fixed_DW_rois(ax=ax1)
+            #draw the registration (pre/post)
+            self.visualise_DW_registration(invert_moving=False, pre_reg_ax=ax2, post_reg_ax=ax3)
+            #visualise the transfromed ROI masks on the target image
+            self.visualise_detected_DW_rois(ax=ax4)
 
+        if self.roi_template.t1_roi_dict:
+            f, ((ax1, ax2, ax3, ax4), (ax5, ax6, ax7, ax8)) = plt.subplots(2, 4)
+            if sup_title is not None:
+                f.suptitle(sup_title)
+            f.set_size_inches(14, 6)
+            # draw the template rois on the template image
+            self.visualise_fixed_T1_rois(ax=ax1)
+            self.visualise_fixed_T2_rois(ax=ax5)
+            # draw the registration (pre/post)
+            self.visualise_T1_registration(invert_moving=False, pre_reg_ax=ax2, post_reg_ax=ax3)
+            self.visualise_T2_registration(invert_moving=False, pre_reg_ax=ax6, post_reg_ax=ax7)
+            # visualise the transfromed ROI masks on the target image
+            self.visualise_detected_T1_rois(ax=ax4)
+            self.visualise_detected_T2_rois(ax=ax8)
+
+        if f is not None:
         # draw it on the pdf
-        pil_f = mu.mplcanvas_to_pil(f)
-        width, height = pil_f.size
-        height_3d, width_3d = pdf.page_width * (height / width), pdf.page_width
-        c.drawImage(ImageReader(pil_f),
-                    0,
-                    pdf.page_height - pdf.top_margin - height_3d - pdf.line_width,
-                    width_3d,
-                    height_3d)
-        plt.close(f)
+            pil_f = mu.mplcanvas_to_pil(f)
+            width, height = pil_f.size
+            height_3d, width_3d = pdf.page_width * (height / width), pdf.page_width
+            c.drawImage(ImageReader(pil_f),
+                        0,
+                        pdf.page_height - pdf.top_margin - height_3d - pdf.line_width,
+                        width_3d,
+                        height_3d)
+            plt.close(f)
 
         c.showPage()  # new page
 
@@ -482,8 +605,9 @@ class ROIDetector(object):
                                       sitk.Euler3DTransform(), sitk.sitkLinear)
         if invert_moving:
             target_pre_im = sitk.InvertIntensity(target_pre_im, maximum=inversion_max)
-
-        target_pre_im_match_type = sitk.Cast(target_pre_im, sitk.sitkUInt16)
+        
+        fixed_im_pixel_type = fixed_im.GetPixelID()
+        target_pre_im_match_type = sitk.Cast(target_pre_im, fixed_im_pixel_type)
         checker_im = sitk.CheckerBoard(fixed_im, target_pre_im_match_type, [4, 4, 1])
         checker_arr = sitk.GetArrayFromImage(checker_im)
 
@@ -503,7 +627,8 @@ class ROIDetector(object):
         if invert_moving:
             target_im = sitk.InvertIntensity(target_im, maximum=inversion_max)
 
-        target_im_match_type = sitk.Cast(target_im, sitk.sitkUInt16)
+        rotated_fixed_im_pixel_type = rotated_fixed_im.GetPixelID()
+        target_im_match_type = sitk.Cast(target_im, rotated_fixed_im_pixel_type)
         checker_im_reg = sitk.CheckerBoard(rotated_fixed_im, target_im_match_type, [4, 4, 1])
         checker_arr_reg = sitk.GetArrayFromImage(checker_im_reg)
         im_slice = checker_arr_reg[slice_dx, :, :]

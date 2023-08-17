@@ -58,6 +58,12 @@ def main():
         ReferencePhantomCalibreSystemFitInit(field_strength=field,  # Tesla
                                              temperature=20.0)      # Celsius
 
+    field_strengths = [1.5]
+    for field in field_strengths:
+        ref_phan_batchDW = ReferencePhantomDiffusion1(field_strength=field,    # Tesla
+                                                         temperature=20.0)        # Celsius
+        ReferencePhantomDiffusionFitInit(field_strength=field,  # Tesla
+                                             temperature=20.0)  # Celsius
 
     mu.log("------ FIN -------", LogLevels.LOG_INFO)
 
@@ -67,6 +73,7 @@ class PhantomOptions(IntEnum):
     SYSTEM_PHANTOM_CALIBER_BATCH1 = 1
     SYSTEM_PHANTOM_CALIBER_BATCH2 = 2
     SYSTEM_PHANTOM_CALIBER_BATCH2p5 = 3
+    DIFFUSION_PHANTOM_CALIBER_BATCH1 = 4
 
 class ReferenceROI(object):
     def __init__(self, label, value, units, value_uncertainty=None):
@@ -239,7 +246,114 @@ class ReferencePhantomCaibreSystem(ReferencePhantomAbstract):
                                                     value_uncertainty=t2_value_uncertainty)
 
 
+#insert new ReferencePhantomDiffusion class below
+# will inherit from ReferencePhantom and will need a function such as ‘load_diffusion_values()’
+# copy the above class ReferencePhantomCaibreSystem(ReferencePhantomAbstract):
 
+class ReferencePhantomDiffusion(ReferencePhantomAbstract):
+    def __init__(self, phantom_type, field_strength,
+                 adc_reference_file,
+                 adc_concentration_roi_map,
+                 temperature=None, serial_number=None):
+        assert os.path.isfile(adc_reference_file), "ReferencePhantomDiffusion::__init__(): unable to locate " \
+                                                  "ADC reference file (%s)" % adc_reference_file
+        self.adc_reference_file = adc_reference_file
+        self.adc_concentration_roi_map = adc_concentration_roi_map
+        self.concentration_error_tol = 1e-3
+        self.temp_error_tol = 5 # degrees celsius
+        if temperature is None:
+            temperature = 20.0
+            mu.log("ReferencePhantomDiffusion::__init__(): "
+                   "no temperature provided (using default value of 20.0 degrees celsuis)", LogLevels.LOG_WARNING)
+        super().__init__(phantom_type, field_strength, temperature,
+                         "CaliberMRI", "DiffusionPhantom", serial_number)
+
+    def load_reference_values(self):
+        self.load_adc_values()
+
+    def load_adc_values(self):
+        mu.log("ReferencePhantomDiffusion::reading ADC reference file: %s" % self.adc_reference_file, LogLevels.LOG_INFO)
+        df = pd.read_csv(self.adc_reference_file)
+        # check for expected columns
+        for c in ["PVP Concentration (%)", "Temp (C)", "ADC reported (um^2/s)"]:
+            assert (c in df.columns), "ReferencePhantomCaibreSystem::load_adc_values(): reference csv is missing " \
+                                      "required column '%s' please check file: %s" % (c, self.adc_reference_file)
+        # convert and temp columns (i.e. '~20' convert to 20.0)
+        if df["Temp (C)"].dtype == object and isinstance(df.iloc[0]["Temp (C)"], str):
+            df["Temp (C)"] = df["Temp (C)"].str.replace('~', '')
+            df["Temp (C)"] = df["Temp (C)"].astype(float)
+        # map the concentrations to the MR-BIAS ROI naming scheme
+        # ---------------------------------------------------------
+        concentration_list = np.array(list(self.adc_concentration_roi_map.values()))
+        # Initialize inv_map as a dictionary with empty lists as values
+        inv_map = {v: [] for v in self.adc_concentration_roi_map.values()}
+        # Populate the inv_map dictionary with corresponding keys for each value v
+        for k, v in self.adc_concentration_roi_map.items():
+            inv_map[v].append(k)
+        df = df.sort_values(['PVP Concentration (%)', 'Temp (C)'], ascending=[False, True])
+        df["roi_label"] = ""
+        for roi_concentration in df["PVP Concentration (%)"].tolist():
+            # find the concentration which is closest matching ROI
+            nearest_contrn, error_contrn = mu.find_nearest_float(roi_concentration, concentration_list)
+            assert error_contrn < self.concentration_error_tol, "ReferencePhantomDiffusion::load_adc_values(): " \
+                                                                "closest matching ADC roi has a concentration error (%0.5f)" \
+                                                                "exceeding tolerance (%0.5f)" %\
+                                                                (error_contrn, self.concentration_error_tol)
+            # label the dataframe rows with the ROI label
+            df.loc[np.isclose(df['PVP Concentration (%)'], nearest_contrn), 'roi_label'] = inv_map[nearest_contrn]
+        # ---------------------------------------------------------
+        
+        # iterate over the valid rois and add to class ref_roi dictionary
+        for roi_label in df["roi_label"].tolist():
+            # find the closest temperature
+            df_roi = df[df.roi_label == roi_label]
+            temp_vec = np.array(df["Temp (C)"].tolist())
+            nearest_temp, error_temp = mu.find_nearest_float(self.temperature, temp_vec)
+            if error_temp > self.temp_error_tol:
+                mu.log("ReferencePhantomDiffusion::load_adc_values() - closest temperature in reference file (%0.2f)"
+                       "exceeds the temperature tolerance (%0.2f deg celsuis)" % (nearest_temp, self.temp_error_tol),
+                       LogLevels.LOG_WARNING)
+            adc_value = df_roi[np.isclose(df_roi["Temp (C)"], nearest_temp)]["ADC reported (um^2/s)"].values[0]
+            adc_value_uncertainty = None
+            if ("adc uncertainty (um^2/s)" in df_roi.columns):
+                adc_value_uncertainty = df_roi[np.isclose(df_roi["Temp (C)"], nearest_temp)]["ADC uncertainty (um^2/s)"].values[0]
+            self.ref_rois[roi_label] = ReferenceROI(roi_label,
+                                                    value=adc_value,
+                                                    units="um^2/s",
+                                                    value_uncertainty=adc_value_uncertainty)
+
+
+class ReferencePhantomDiffusion1(ReferencePhantomDiffusion):
+    def __init__(self, field_strength, temperature=None, serial_number=None):
+        calibre_diff_phantom_dir = os.path.join(mu.reference_phantom_values_directory(),
+                                              "diffusion_phantom", "batch1_sn_lte_131-0143")
+        mu.log("ReferencePhantomDiffusion1::__init__() [%0.1f T, %s deg. celsius]" % (field_strength, temperature),
+               LogLevels.LOG_INFO)
+        adc_reference_file = None
+        if mu.isclose(field_strength, 1.5, abs_tol=0.01):
+            adc_reference_file = os.path.join(calibre_diff_phantom_dir, "DW-Batch1_1p5T_userCreated_20230727.csv")
+        super().__init__(PhantomOptions.DIFFUSION_PHANTOM_CALIBER_BATCH1, field_strength,
+                         adc_reference_file,
+                         self.get_adc_concentration_roi_map(),
+                         temperature, serial_number)
+
+    @staticmethod
+    def get_adc_concentration_roi_map():
+        # map the concentrations to the MRI-BIAS ROI naming scheme 
+        adc_concentration_roi_map = {"dw_roi_13": 0.0, #the 0% concentrations are water!
+                                    "dw_roi_12": 10.0,
+                                    "dw_roi_11": 20.0,
+                                    "dw_roi_10": 30.0,
+                                    "dw_roi_9": 40.0,
+                                    "dw_roi_8": 50.0,
+                                    "dw_roi_7": 10.0,
+                                    "dw_roi_6": 20.0,
+                                    "dw_roi_5": 30.0,
+                                    "dw_roi_4": 40.0,
+                                    "dw_roi_3": 50.0,
+                                    "dw_roi_2": 0.0,
+                                    "dw_roi_1": 0.0}
+        return adc_concentration_roi_map
 
 
 class ReferencePhantomCalibreSystem1(ReferencePhantomCaibreSystem):
@@ -455,6 +569,23 @@ class ReferencePhantomCalibreSystemFitInit(ReferencePhantomCaibreSystem):
     @staticmethod
     def get_t2_concentration_roi_map():
         return ReferencePhantomCalibreSystem1.get_t2_concentration_roi_map()
+
+class ReferencePhantomDiffusionFitInit(ReferencePhantomDiffusion):
+    def __init__(self, field_strength, temperature=None):
+        calibre_diff_phantom_dir = os.path.join(mu.reference_phantom_values_directory(),
+                                              "diffusion_phantom")
+        mu.log("ReferencePhantomDiffusionFitInit::__init__() [%0.1f T, %s deg. celsius]" % (field_strength, temperature),
+               LogLevels.LOG_INFO)
+        adc_reference_file = None
+        if mu.isclose(field_strength, 1.5, abs_tol=0.01):
+            adc_reference_file = os.path.join(calibre_diff_phantom_dir, "DW_1p5T_curve_fit_init.csv")
+        super().__init__(PhantomOptions.DIFFUSION_PHANTOM_CALIBER_BATCH1, field_strength,
+                         adc_reference_file,
+                         self.get_adc_concentration_roi_map(),
+                         temperature)
+    @staticmethod
+    def get_adc_concentration_roi_map():
+        return ReferencePhantomDiffusion1.get_adc_concentration_roi_map()
 
 
 

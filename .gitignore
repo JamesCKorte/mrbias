@@ -13,6 +13,10 @@ utils/*.pdf
 utils/*.csv
 mrbias/*.pdf
 mrbias/roi_reference_values/caliber_system_phantom/batch1_sn_lte_130-0041/*.pdf
+mrbias/dw_000_DWCurveFit2param_AvROI_NrmVoxMax_ExclClip-100pct/
+mrbias/dw_000_DWCurveFit2param_NrmVoxMax_ExclClip-100pct/
+mrbias/roi_reference_values/diffusion_phantom/batch1_sn_128-0155/
+new_data/
 
 # Distribution / packaging
 .Python

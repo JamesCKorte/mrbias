@@ -125,6 +125,8 @@ class MRBIAS(object):
             ss = scan_session.SystemSessionSiemensSkyraErin(dicom_directory)
         elif scan_protocol == "philips_ingenia_ambitionX":
             ss = scan_session.SystemSessionPhilipsIngeniaAmbitionX(dicom_directory)
+        elif scan_protocol == "diff_philips_ingenia_ambitionX":
+            ss = scan_session.DiffusionSessionPhilipsIngeniaAmbitionX(dicom_directory)
         else:
             mu.log("MR-BIAS::analyse(): skipping analysis as unknown 'scan_protocol' defined for DICOM sorting",
                    LogLevels.LOG_WARNING)
@@ -134,12 +136,14 @@ class MRBIAS(object):
         t1_vir_imagesets = []
         t1_vfa_imagesets = []
         t2_mse_imagesets = []
+        dw_imagesets = []
         if ss is not None:
             geometric_images = ss.get_geometric_images()
             #pd_images = ss.get_proton_density_images()
             t1_vir_imagesets = ss.get_t1_vir_image_sets()
             t1_vfa_imagesets = ss.get_t1_vfa_image_sets()
             t2_mse_imagesets = ss.get_t2_mse_image_sets()
+            dw_imagesets = ss.get_dw_image_sets()
             ss.write_pdf_summary_page(c)
         # log some basic details of the imagesets
         for t1_vir_imageset in t1_vir_imagesets:
@@ -151,13 +155,16 @@ class MRBIAS(object):
         for t2_mse_imageset in t2_mse_imagesets:
             mu.log("Found T2(MSE): %s" % type(t2_mse_imageset), LogLevels.LOG_INFO)
             mu.log("\t\t%s" % str(t2_mse_imageset), LogLevels.LOG_INFO)
+        for dw_imageset in dw_imagesets:
+            mu.log("Found DW: %s" % type(dw_imageset), LogLevels.LOG_INFO)
+            mu.log("\t\t%s" % str(dw_imageset), LogLevels.LOG_INFO)
 
         geometric_images_linked = set()
         if ss is not None:
             # exclude any geometric images that are not reference in curve fit data
             mu.log("MR-BIAS::analyse(): Identify linked geometric images ...", LogLevels.LOG_INFO)
             for geometric_image in geometric_images:
-                for fit_imagesets in [t1_vir_imagesets, t1_vfa_imagesets, t2_mse_imagesets]:
+                for fit_imagesets in [t1_vir_imagesets, t1_vfa_imagesets, t2_mse_imagesets, dw_imagesets]:
                     for imageset in fit_imagesets:
                         g = imageset.get_geometry_image()
                         if g.get_label() == geometric_image.get_label():
@@ -184,6 +191,8 @@ class MRBIAS(object):
             roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_skyra_3p0T")
         elif roi_template == "systemlite_siemens_vida_3p0T":
             roi_template_dir = os.path.join(mu.reference_template_directory(), "systemlite_siemens_vida_3p0T")
+        elif roi_template == "philips_ingenia_1p5T":
+            roi_template_dir = os.path.join(mu.reference_template_directory(), "philips_ingenia_1p5T")
         # ... add others
         if roi_template is None:
             mu.log("MR-BIAS::analyse(): skipping analysis as unknown 'roi_template' defined for ROI detection",
@@ -229,30 +238,50 @@ class MRBIAS(object):
         phantom_type = phan_config.get_phantom_type()
         phantom_sn = phan_config.get_phantom_serial_number()
         ph_model_num, ph_item_num = phantom_sn.split("-")
-        if not ((phantom_maker == "caliber_mri") and (phantom_type =="system_phantom") and (ph_model_num == "130")):
-            mu.log("MR-BIAS::analyse(): only supports phantom [caliber_mri:system_phantom(130)] (not [%s:%s()]) "
+        if not ((phantom_maker == "caliber_mri") and (phantom_type =="system_phantom") and (ph_model_num == "130")) and \
+            not ((phantom_maker == "caliber_mri") and (phantom_type =="diffusion_phantom") and (ph_model_num == "128")):
+            mu.log("MR-BIAS::analyse(): only supports phantom [caliber_mri:system_phantom(130) and caliber_mri:diffusion_phantom(128)] (not [%s:%s()]) "
                    "skipping analysis... " % (phantom_maker, phan_config, ph_model_num), LogLevels.LOG_ERROR)
             return None
+        
         #experiment details
         field_strength = phan_config.get_field_strength_tesla()
         temperature_celsius = phan_config.get_temperature_celsius()
-        init_phan = phantom.ReferencePhantomCalibreSystemFitInit(field_strength=field_strength,  # Tesla
+        if phantom_type == "system_phantom":
+            init_phan = phantom.ReferencePhantomCalibreSystemFitInit(field_strength=field_strength,  # Tesla
                                                                  temperature=temperature_celsius)  # Celsius
+        if phantom_type == "diffusion_phantom":
+            init_phan = phantom.ReferencePhantomDiffusionFitInit(field_strength=field_strength,  # Tesla
+                                                                 temperature=temperature_celsius)  # Celsius
+        mu.log("init_phan: type, value, etc...", LogLevels.LOG_ERROR)
+        mu.log(type(init_phan), LogLevels.LOG_ERROR)
+        mu.log(init_phan, LogLevels.LOG_ERROR)
+
         # select the reference phantom based on phantom serial number
-        ph_item_num = int(ph_item_num)
-        ref_phan = None
-        if ph_item_num < 42:
-            ref_phan = phantom.ReferencePhantomCalibreSystem1(field_strength=field_strength,  # Tesla
-                                                              temperature=temperature_celsius,
-                                                              serial_number=phantom_sn)  # Celsius
-        elif ph_item_num < 133:
-            ref_phan = phantom.ReferencePhantomCalibreSystem2(field_strength=field_strength,  # Tesla
-                                                              temperature=temperature_celsius,
-                                                              serial_number=phantom_sn)  # Celsius
-        else: # ph_item_num >= 133
-            ref_phan = phantom.ReferencePhantomCalibreSystem2p5(field_strength=field_strength,  # Tesla
+        if ph_model_num == "130":
+            ph_item_num = int(ph_item_num)
+            ref_phan = None
+            if ph_item_num < 42:
+                ref_phan = phantom.ReferencePhantomCalibreSystem1(field_strength=field_strength,  # Tesla
                                                                 temperature=temperature_celsius,
                                                                 serial_number=phantom_sn)  # Celsius
+            elif ph_item_num < 133:
+                ref_phan = phantom.ReferencePhantomCalibreSystem2(field_strength=field_strength,  # Tesla
+                                                                temperature=temperature_celsius,
+                                                                serial_number=phantom_sn)  # Celsius
+            else: # ph_item_num >= 133
+                ref_phan = phantom.ReferencePhantomCalibreSystem2p5(field_strength=field_strength,  # Tesla
+                                                                    temperature=temperature_celsius,
+                                                                    serial_number=phantom_sn)  # Celsius
+        
+        elif ph_model_num == "128":
+            ph_item_num = int(ph_item_num)
+            ref_phan = None
+            ref_phan = phantom.ReferencePhantomDiffusion1(field_strength=field_strength,  # Tesla
+                                                                temperature=temperature_celsius,
+                                                                serial_number=phantom_sn)  # Celsius
+                
+
         # --------------------------------------------------------------------
         # get curve fitting details from the configuration file
         # --------------------------------------------------------------------
@@ -363,6 +392,28 @@ class MRBIAS(object):
                 if mdl is not None:
                     # add summary page to pdf
                     mdl.write_pdf_summary_pages(c)
+                    # write the data output
+                    d_dir = os.path.join(out_dir, mdl.get_imset_model_preproc_name())
+                    if not os.path.isdir(d_dir):
+                        os.mkdir(d_dir)
+                    mdl.write_data(data_dir=d_dir,
+                                   write_voxel_data=cf_write_vox_data)
+        # ----------------------------------------------------
+        # DWI
+        for dw_imageset in dw_imagesets:
+            dw_imageset.update_ROI_mask()  # trigger a mask update
+            # get model options from configuration file
+            dw_model_list = cf_config.get_dw_models()
+            for dw_model_str in dw_model_list:
+                mdl = None
+                if dw_model_str == "2_param":
+                    mdl = curve_fit.DWCurveFitAbstract2Param(imageset=dw_imageset,
+                                                                reference_phantom=ref_phan,
+                                                                initialisation_phantom=init_phan,
+                                                                preprocessing_options=preproc_dict)
+                if mdl is not None:
+                    # add summary page to pdf
+                    mdl.write_pdf_summary_pages_dw(c)
                     # write the data output
                     d_dir = os.path.join(out_dir, mdl.get_imset_model_preproc_name())
                     if not os.path.isdir(d_dir):
@@ -829,6 +880,19 @@ class MRIBiasCurveFitConfig(MRIBIASConfiguration):
                "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
         return default_value
 
+
+    def get_dw_models(self):
+            cf_config = super().get_curve_fitting_config()
+            if cf_config is not None:
+                if "dw_options" in cf_config.keys():
+                    dw_opts = cf_config["dw_options"]
+                    if "fitting_models" in dw_opts.keys():
+                        return dw_opts["fitting_models"]
+            # not found, return a default value
+            default_value = ["2_param"]
+            mu.log("MR-BIASCurveFitConfig::dw_options(): not found in configuration file, "
+                "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
+            return default_value
 
 
     def get_save_voxel_data(self):

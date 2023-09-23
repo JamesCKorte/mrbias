@@ -252,8 +252,16 @@ class ImageSetAbstract(ABC):
         roi_dx = 0
         for ax_row_dx, axes_row in zip([0, 2],
                                        [ax_row_1a, ax_row_2a]):
-            for ax_dx, ax in enumerate(axes_row):
-                if roi_dx < n_rois:
+            for ax_dx in range(rois_per_row):
+                ax = axes_row[ax_dx]
+                # if its a 3D image try again
+                sag_ax = None
+                if ax_row_dx == 0:
+                    sag_ax = ax_row_1b[ax_dx]
+                if ax_row_dx == 2:
+                    sag_ax = ax_row_2b[ax_dx]
+
+                if (roi_dx < n_rois):
                     roi_xyz = np.nonzero(mask_arr == roi_vals[roi_dx])
                     c_x, c_y, c_z = np.median(roi_xyz[0]).astype(int), \
                                     np.median(roi_xyz[1]).astype(int), \
@@ -293,12 +301,6 @@ class ImageSetAbstract(ABC):
                     if ax_dx == 0:
                         ax.set_ylabel("axial")
 
-                    # if its a 3D image try again
-                    sag_ax = None
-                    if ax_row_dx == 0:
-                        sag_ax = ax_row_1b[ax_dx]
-                    if ax_row_dx == 2:
-                        sag_ax = ax_row_2b[ax_dx]
                     if sag_ax is not None:
                         if (c_x_max - c_x_min) > 1:
                             zoom_arr = base_arr[extent_x_a:extent_x_b, c_y, extent_z_a:extent_z_b]
@@ -328,6 +330,8 @@ class ImageSetAbstract(ABC):
                 else:
                     # hide any unused axes
                     ax.axis('off')
+                    if sag_ax is not None:
+                        sag_ax.axis('off')
         # draw it on the pdf
         pil_f = mu.mplcanvas_to_pil(f)
         width, height = pil_f.size
@@ -627,7 +631,7 @@ class ImageSetDW(ImageSetAbstract):
                          sitk_im_list=sitk_im_list,
                          measurement_variable_list=b_value_list,
                          measurement_variable_name="b-value",
-                         measurement_variable_units="s/m^2",
+                         measurement_variable_units="s/µm²",
                          repetition_time_list=repetition_time_list,
                          geometry_image=geometry_image,
                          series_instance_UIDs=series_instance_UIDs,

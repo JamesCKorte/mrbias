@@ -105,6 +105,10 @@ def main():
     # parse a dicom directory for test imaging data
     test_dcm_dir = os.path.join(mu.reference_data_directory(), "mrbias_testset_A")
     ss = scanner.SystemSessionSiemensSkyra(test_dcm_dir)
+
+    #test_dcm_dir = os.path.join(mu.reference_data_directory(), "new_data/Intial_SystemAndDiffusionDataset/DWI_Phantom") #for DWI
+    #ss = scanner.DiffusionSessionPhilipsIngeniaAmbitionX(test_dcm_dir) #for DWI
+
     # if a valid scan protocol found load up relevant image sets
     if ss is not None:
         mu.log(" loading image sets ..." , LogLevels.LOG_INFO)
@@ -112,12 +116,13 @@ def main():
         t1_vir_imagesets = ss.get_t1_vir_image_sets()
         t1_vfa_imagesets = ss.get_t1_vfa_image_sets()
         t2_mse_imagesets = ss.get_t2_mse_image_sets()
+        dw_imagesets = ss.get_dw_image_sets()
         ss.write_pdf_summary_page(c)
     # exclude any geometric images that are not reference in curve fit data
     mu.log(" searching for linked geometric images ...", LogLevels.LOG_INFO)
     geometric_images_linked = set()
     for geometric_image in geometric_images:
-        for fit_imagesets in [t1_vir_imagesets, t1_vfa_imagesets, t2_mse_imagesets]:
+        for fit_imagesets in [t1_vir_imagesets, t1_vfa_imagesets, t2_mse_imagesets, dw_imagesets]:
             for imageset in fit_imagesets:
                 g = imageset.get_geometry_image()
                 if g.get_label() == geometric_image.get_label():
@@ -132,6 +137,7 @@ def main():
 
     # detect the ROIs for curve fitting
     roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_skyra_3p0T")
+    #roi_template_dir = os.path.join(mu.reference_template_directory(), "philips_ingenia_1p5T") #for DWI
     for geom_image in geometric_images_linked:
         roi_detector = roi_detect.ROIDetector(geom_image,
                                               roi_template_dir)
@@ -148,6 +154,10 @@ def main():
                                                       serial_number="130-0093")  # Celsius
     init_phan = phantom.ReferencePhantomCalibreSystemFitInit(field_strength=3.0,  # Tesla
                                                              temperature=20.0)  # Celsius
+    #ref_phan = phantom.ReferencePhantomDiffusion1(field_strength=1.5,    # Tesla #for DWI
+                                                         #temperature=26.0)        # Celsius
+    #init_phan = phantom.ReferencePhantomDiffusionFitInit(field_strength=1.5,  # Tesla #for DWI
+                                                             #temperature=26.0)  # Celsius
     preproc_dict_a = {'normalise': NormalisationOptions.VOXEL_MAX,
                       'average': AveragingOptions.AVERAGE_ROI,
                       'exclude': ExclusionOptions.CLIPPED_VALUES}
@@ -156,46 +166,57 @@ def main():
     # test all the models
     for preproc_dict in [preproc_dict_a, preproc_dict_b]:
         # T1 VFA check
-        t1_vfa_imageset = t1_vfa_imagesets[0]
-        t1_vfa_imageset.update_ROI_mask()  # trigger a mask update
-        # 2 parameter model:
-        test_t1_vfa_curvefit2p = T1VFACurveFitAbstract2Param(imageset=t1_vfa_imageset,
-                                                             reference_phantom=ref_phan,
-                                                             initialisation_phantom=init_phan,
-                                                             preprocessing_options=preproc_dict,
-                                                             angle_exclusion_list=[15.0],
-                                                             exclusion_label="no15deg")
+        if len(t1_vfa_imagesets):
+            t1_vfa_imageset = t1_vfa_imagesets[0]
+            t1_vfa_imageset.update_ROI_mask()  # trigger a mask update
+            # 2 parameter model:
+            test_t1_vfa_curvefit2p = T1VFACurveFitAbstract2Param(imageset=t1_vfa_imageset,
+                                                                reference_phantom=ref_phan,
+                                                                initialisation_phantom=init_phan,
+                                                                preprocessing_options=preproc_dict,
+                                                                angle_exclusion_list=[15.0],
+                                                                exclusion_label="no15deg")
 
         # T1 VIR check
-        t1_vir_imageset = t1_vir_imagesets[0]
-        t1_vir_imageset.update_ROI_mask() # trigger a mask update
-        # 2 parameter model:
-        test_t1_curvefit2p = T1VIRCurveFitAbstract2Param(imageset=t1_vir_imageset,
-                                                         reference_phantom=ref_phan,
-                                                         initialisation_phantom=init_phan,
-                                                         preprocessing_options=preproc_dict,
-                                                         inversion_exclusion_list=[1500],
-                                                         exclusion_label="no1500ms")
-        # 3 parameter model:
-        test_t1_curvefit3p = T1VIRCurveFitAbstract3Param(imageset=t1_vir_imageset,
-                                                         reference_phantom=ref_phan,
-                                                         initialisation_phantom=init_phan,
-                                                         preprocessing_options=preproc_dict)
-        # 4 parameter model:
-        test_t1_curvefit4p = T1VIRCurveFitAbstract4Param(imageset=t1_vir_imageset,
-                                                         reference_phantom=ref_phan,
-                                                         initialisation_phantom=init_phan,
-                                                         preprocessing_options=preproc_dict)
+        if len(t1_vir_imagesets):
+            t1_vir_imageset = t1_vir_imagesets[0]
+            t1_vir_imageset.update_ROI_mask() # trigger a mask update
+            # 2 parameter model:
+            test_t1_curvefit2p = T1VIRCurveFitAbstract2Param(imageset=t1_vir_imageset,
+                                                            reference_phantom=ref_phan,
+                                                            initialisation_phantom=init_phan,
+                                                            preprocessing_options=preproc_dict,
+                                                            inversion_exclusion_list=[1500],
+                                                            exclusion_label="no1500ms")
+            # 3 parameter model:
+            test_t1_curvefit3p = T1VIRCurveFitAbstract3Param(imageset=t1_vir_imageset,
+                                                            reference_phantom=ref_phan,
+                                                            initialisation_phantom=init_phan,
+                                                            preprocessing_options=preproc_dict)
+            # 4 parameter model:
+            test_t1_curvefit4p = T1VIRCurveFitAbstract4Param(imageset=t1_vir_imageset,
+                                                            reference_phantom=ref_phan,
+                                                            initialisation_phantom=init_phan,
+                                                            preprocessing_options=preproc_dict)
 
         # T2 MSE check
-        t2_mse_imageset = t2_mse_imagesets[0]
-        t2_mse_imageset.update_ROI_mask() # trigger a mask update
-        test_t2_curvefit3p = T2SECurveFitAbstract3Param(imageset=t2_mse_imageset,
-                                                        reference_phantom=ref_phan,
-                                                        initialisation_phantom=init_phan,
-                                                        preprocessing_options=preproc_dict,
-                                                        echo_exclusion_list=[10, 20.],
-                                                        exclusion_label="less20deg")
+        if len(t2_mse_imagesets):
+            t2_mse_imageset = t2_mse_imagesets[0]
+            t2_mse_imageset.update_ROI_mask() # trigger a mask update
+            test_t2_curvefit3p = T2SECurveFitAbstract3Param(imageset=t2_mse_imageset,
+                                                            reference_phantom=ref_phan,
+                                                            initialisation_phantom=init_phan,
+                                                            preprocessing_options=preproc_dict,
+                                                            echo_exclusion_list=[10, 20.],
+                                                            exclusion_label="less20deg")
+        
+        if len(dw_imagesets):
+            dw_imageset = dw_imagesets[0]
+            dw_imageset.update_ROI_mask() # trigger a mask update
+            test_dw_curvefit2p = DWCurveFitAbstract2Param(imageset=dw_imageset,
+                                                            reference_phantom=ref_phan,
+                                                            initialisation_phantom=init_phan,
+                                                            preprocessing_options=preproc_dict)
 
         # add summary pages to PDF
         for model in [test_t1_vfa_curvefit2p, test_t1_curvefit2p, test_t1_curvefit3p, test_t1_curvefit4p, test_t2_curvefit3p]:
@@ -205,6 +226,14 @@ def main():
                 os.mkdir(model_out_dir)
             model.write_data(model_out_dir)
             model.write_pdf_summary_pages(c)
+
+        #for model in [test_dw_curvefit2p]: #for DWI
+            # create an output directory
+            #model_out_dir = model.get_imset_model_preproc_name()
+            #if not os.path.isdir(model_out_dir):
+                #os.mkdir(model_out_dir)
+            #model.write_data(model_out_dir)
+            #model.write_pdf_summary_pages_dw(c)
 
 
     # save the pdf report
@@ -431,7 +460,7 @@ class CurveFitROI(imset.ImageSetROI):
 
     def set_voxel_fit_goodness_data(self, vox_gfit_data_dict):
         assert isinstance(vox_gfit_data_dict, dict), "CurveFitROI::set_voxel_fit_goodness_data() expects datatype 'dict' " \
-                                                     "(not %s)" % (type(vox_err_data_dict))
+                                                     "(not %s)" % (type(vox_gfit_data_dict))
         self.voxel_fit_goodness_array_dict = vox_gfit_data_dict
 
     def has_been_fit(self):
@@ -644,10 +673,15 @@ class CurveFitROI(imset.ImageSetROI):
                             alpha=line_alpha, linewidth=1.0)
                 average_param_fit = mean_fitted_kwargs[symbol_of_interest]
             # add a title
-            ax.set_title("%s\n%s=%0.1f %s\n(%s_ref=%0.1f %s)" % (self.label,
-                                                                 symbol_of_interest, average_param_fit, "ms",
-                                                                 symbol_of_interest, self.reference_value, "ms"),
-                         fontsize=10)
+            if symbol_of_interest == "D":
+                ax.set_title("%s\n%s=%0.1f %s\n%s_ref=%0.1f %s" % (self.label,
+                                                                    symbol_of_interest, average_param_fit, "µm²/s",
+                                                                    symbol_of_interest, self.reference_value, "µm²/s"), fontsize=10)
+            else:
+                ax.set_title("%s\n%s=%0.1f %s\n(%s_ref=%0.1f %s)" % (self.label,
+                                                                    symbol_of_interest, average_param_fit, "ms",
+                                                                    symbol_of_interest, self.reference_value, "ms"),
+                            fontsize=10)
         # FORMAT
         ax.grid('on')
         ax.set_xlabel('%s (%s)' % (self.meas_var_name, self.meas_var_units))
@@ -1063,8 +1097,14 @@ class CurveFitAbstract(ABC):
             self.write_pdf_fit_table_page(c)
             self.write_pdf_roi_page(c)
             self.write_pdf_voxel_fit_page(c)
-            self.write_pdf_fit_accuracy_page(c)
+            self.write_pdf_fit_accuracy_page(c) #add flags to stop code duplication! XXXX / make fn more general
 
+    def write_pdf_summary_pages_dw(self, c):
+        if self.rois_found:
+            self.write_pdf_fit_table_page(c)
+            self.write_pdf_roi_page(c)
+            self.write_pdf_voxel_fit_page(c)
+            self.write_pdf_fit_accuracy_page_dw(c)
 
     def write_pdf_roi_page(self, c):
         pdf = mu.PDFSettings()
@@ -1305,9 +1345,14 @@ class CurveFitAbstract(ABC):
                 df_ROIS = df_plot.drop_duplicates(subset=["RoiLabel"])
                 df_roi = df_ROIS[df_ROIS["RoiLabel"] == roi_name]
                 roi_ref_relax_val = df_roi[reference_label]
-                xtick_label_vec.append("%s\n(%s=%0.2f ms)" % (roi_name,
-                                                              reference_label.replace("_reference", "_ref"),
-                                                              roi_ref_relax_val))
+                if self.get_model_name() == "DWCurveFit2param":
+                    xtick_label_vec.append("%s\n(%s=%0.2f µm²/s)" % (roi_name,
+                                                                        reference_label.replace("_reference", "_ref"),
+                                                                        roi_ref_relax_val))
+                else:
+                    xtick_label_vec.append("%s\n(%s=%0.2f ms)" % (roi_name,
+                                                                reference_label.replace("_reference", "_ref"),
+                                                                roi_ref_relax_val))
             ax3.get_xaxis().set_ticklabels(xtick_label_vec)
 
             abs_max_lim = np.max(np.abs(ax1.get_ylim()[1]))
@@ -1322,6 +1367,99 @@ class CurveFitAbstract(ABC):
             # style y axis labels
             for ax in [ax1, ax3]:
                 ax.set_ylabel("")
+            ax2.set(yticks=central_ticks)
+            ax2.axhline(y=0, linewidth=2, color='gray', alpha=0.5)
+            for ylim in [-abs_limit_line, abs_limit_line]:
+                ax2.axhline(y=ylim, linewidth=2, color='gray', linestyle="--", alpha=0.5)
+
+            # draw it on the pdf
+            pil_f = mu.mplcanvas_to_pil(f)
+            width, height = pil_f.size
+            height_3d, width_3d = pdf.page_width * (height / width), pdf.page_width
+            c.drawImage(ImageReader(pil_f),
+                        0,
+                        pdf.page_height - pdf.top_margin - height_3d - pdf.line_width,
+                        width_3d,
+                        height_3d)
+            plt.close(f)
+        # -------------------------------------------------------------
+        c.showPage()  # new page
+
+    def write_pdf_fit_accuracy_page_dw(self, c,
+                                    central_limit_pcnt=50,
+                                    central_ticks=[-50, -40, -30, -20, -10, 0, 10, 20, 30, 40, 50],
+                                    abs_limit_line=25):
+        pdf = mu.PDFSettings()
+        c.setFont(pdf.font_name, pdf.small_font_size)  # set to a fixed width font
+        sup_title = "CurveFit [%s - %s] <%s>" % (self.get_model_name(),
+                                                 self.get_preproc_name(),
+                                                 self.get_imageset_name())
+        # get the fit data and restructure
+        df = self.get_voxel_dataframe()
+        df = df.sort_values(['RoiIndex'], ascending=[True])
+        df = df.drop_duplicates(subset=["RoiLabel", "VoxelID"])
+        symbol_of_interest = self.get_symbol_of_interest()
+        reference_label = "%s_reference" % symbol_of_interest
+        error_name = "%s (%sbias)" % (self.get_symbol_of_interest(), "%")
+        df[error_name] = 100.0*(df[symbol_of_interest]-df[reference_label])/df[reference_label]
+        df_plot = df[["RoiLabel",
+                      "VoxelID",
+                      symbol_of_interest,
+                      reference_label,
+                      error_name]]
+
+        # setup the figure
+        with sns.axes_style(mu.SEABORN_STYLE):
+            f, (ax2) = plt.subplots(1, 1)
+            f.suptitle(sup_title)
+            f.set_size_inches(12, 8)
+            f.subplots_adjust(bottom=0.2)
+            # create the color pallete
+            roi_labels = df_plot.drop_duplicates(subset=["RoiLabel"]).RoiLabel
+            col_pal = []
+            col_settings = mu.ColourSettings()
+            for roi_label in roi_labels:
+                col_pal.append(col_settings.get_ROI_colour(roi_label))
+
+            for ax in [ax2]:
+                # draw the error plot
+                box_linewidth = 1
+                strip_jitter = 0.25
+                strip_alpha = 0.5
+                if 'average' in self.preproc_dict.keys():
+                    box_linewidth = 0
+                    strip_jitter = 0
+                    strip_alpha = 0.9
+                sns.boxplot(x="RoiLabel", y=error_name, data=df_plot, ax=ax,
+                            boxprops=dict(alpha=.5), showfliers=False, linewidth=box_linewidth,
+                            order=roi_labels, palette=col_pal)
+                sns.stripplot(x="RoiLabel", y=error_name, data=df_plot, ax=ax,
+                              jitter=strip_jitter, dodge=True, alpha=strip_alpha,
+                              order=roi_labels, palette=col_pal)
+
+            # update the x labels to include the reference value
+            xtick_label_vec = []
+            for roi_name in roi_labels:
+                df_ROIS = df_plot.drop_duplicates(subset=["RoiLabel"])
+                df_roi = df_ROIS[df_ROIS["RoiLabel"] == roi_name]
+                roi_ref_relax_val = df_roi[reference_label]
+                if self.get_model_name() == "DWCurveFit2param":
+                    xtick_label_vec.append("%s\n(%s=%0.2f µm²/s)" % (roi_name,
+                                                                        reference_label.replace("_reference", "_ref"),
+                                                                        roi_ref_relax_val))
+                else:
+                    xtick_label_vec.append("%s\n(%s=%0.2f ms)" % (roi_name,
+                                                                reference_label.replace("_reference", "_ref"),
+                                                                roi_ref_relax_val))
+            ax2.get_xaxis().set_ticklabels(xtick_label_vec)
+
+            ax2.set(ylim=(-central_limit_pcnt, central_limit_pcnt))
+            # style x axis labels
+            plt.setp(ax2.get_xticklabels(), rotation=45, horizontalalignment="right")
+            for ax in [ax2]:
+                ax.get_xaxis().set_ticklabels([])
+                ax.set_xlabel("")
+            # style y axis labels
             ax2.set(yticks=central_ticks)
             ax2.axhline(y=0, linewidth=2, color='gray', alpha=0.5)
             for ylim in [-abs_limit_line, abs_limit_line]:
@@ -1376,6 +1514,12 @@ class CurveFitAbstract(ABC):
     def get_imset_model_preproc_name(self):
         return "%s_%s_%s" % (self.get_imageset_name(), self.get_model_name(), self.get_preproc_name())
 
+    def get_model_eqn_parameter_strs(self):
+        eqn_param_strs = []
+        for p_name, (descr, init_v, min_v, max_v) in self.eqn_param_map.items():
+            eqn_param_strs.append((p_name, descr, init_v, min_v, max_v))
+        return eqn_param_strs
+
     @abstractmethod
     def estimate_cf_start_point(self, meas_vec, av_sig, init_val, cf_roi):
         return None
@@ -1412,10 +1556,6 @@ class CurveFitAbstract(ABC):
     @abstractmethod
     def get_model_eqn_strs(self):
         return None
-    @abstractmethod
-    def get_model_eqn_parameter_strs(self):
-        return None
-
 
 
 class T1VIRCurveFitAbstract2Param(CurveFitAbstract):
@@ -1471,12 +1611,6 @@ class T1VIRCurveFitAbstract2Param(CurveFitAbstract):
     def get_model_eqn_strs(self):
         eqn_strs = ["S(TI) = | M0 * (1 - 2 * exp(-TI/T1) |"]
         return eqn_strs
-
-    def get_model_eqn_parameter_strs(self):
-        eqn_param_strs = []
-        for p_name, (descr, init_v, min_v, max_v) in self.eqn_param_map.items():
-            eqn_param_strs.append((p_name, descr, init_v, min_v, max_v))
-        return eqn_param_strs
 
 
 class T1VIRCurveFitAbstract3Param(CurveFitAbstract):
@@ -1534,12 +1668,6 @@ class T1VIRCurveFitAbstract3Param(CurveFitAbstract):
     def get_model_eqn_strs(self):
         eqn_strs = ["S(TI) = | M0 * (1 - Finv * exp(-TI/T1) |"]
         return eqn_strs
-
-    def get_model_eqn_parameter_strs(self):
-        eqn_param_strs = []
-        for p_name, (descr, init_v, min_v, max_v) in self.eqn_param_map.items():
-            eqn_param_strs.append((p_name, descr, init_v, min_v, max_v))
-        return eqn_param_strs
 
 
 class T1VIRCurveFitAbstract4Param(CurveFitAbstract):
@@ -1604,14 +1732,6 @@ class T1VIRCurveFitAbstract4Param(CurveFitAbstract):
         eqn_strs = ["S(TI) = | M0 ( 1 + (1 - Finv) * exp(-TR/T1) - Finv * exp(-TI/T1) ) | + n"]
         return eqn_strs
 
-    def get_model_eqn_parameter_strs(self):
-        eqn_param_strs = []
-        for p_name, (descr, init_v, min_v, max_v) in self.eqn_param_map.items():
-            eqn_param_strs.append((p_name, descr, init_v, min_v, max_v))
-        return eqn_param_strs
-
-
-
 
 class T1VFACurveFitAbstract2Param(CurveFitAbstract):
     def __init__(self, imageset, reference_phantom, initialisation_phantom, preprocessing_options,
@@ -1667,12 +1787,6 @@ class T1VFACurveFitAbstract2Param(CurveFitAbstract):
                     "S(alpha)  =  M0 * sin(alpha) * ---------------------------------",
                     "                               ( 1.0 - cos(alpha) * exp(-TR/T1) )"]
         return eqn_strs
-
-    def get_model_eqn_parameter_strs(self):
-        eqn_param_strs = []
-        for p_name, (descr, init_v, min_v, max_v) in self.eqn_param_map.items():
-            eqn_param_strs.append((p_name, descr, init_v, min_v, max_v))
-        return eqn_param_strs
 
 
 class T2SECurveFitAbstract3Param(CurveFitAbstract):
@@ -1737,11 +1851,57 @@ class T2SECurveFitAbstract3Param(CurveFitAbstract):
         eqn_strs = ["S(TE) = M0 * exp(-TE/T2) + n"]
         return eqn_strs
 
-    def get_model_eqn_parameter_strs(self):
-        eqn_param_strs = []
-        for p_name, (descr, init_v, min_v, max_v) in self.eqn_param_map.items():
-            eqn_param_strs.append((p_name, descr, init_v, min_v, max_v))
-        return eqn_param_strs
+
+class DWCurveFitAbstract2Param(CurveFitAbstract):
+    def __init__(self, imageset, reference_phantom, initialisation_phantom, preprocessing_options):
+        self.eqn_param_map = OrderedDict()
+        self.eqn_param_map["Sb_0"] = ("Signal at b_0", "max(Sb_x)", "0.0", "inf")
+        self.eqn_param_map["D"] = ("D", "D", "0.0", "inf")
+        self.eqn_param_map["Bx"] = ("b value", "as measured", "-", "-")
+        super().__init__(imageset, reference_phantom, initialisation_phantom, preprocessing_options)
+
+    def get_model_name(self):
+        return "DWCurveFit2param"
+
+    def get_meas_parameter_name(self):
+        return 'b-value (s/µm²)'
+
+    def get_symbol_of_interest(self):
+        return 'D'
+    def get_ordered_parameter_symbols(self):
+        return ['Sb_0', 'D']
+    def get_meas_parameter_symbol(self):
+        return 'Bx'
+
+    def fit_function(self, Bx, Sb_0, D):
+        # Sb_0 = flip value of pixel in DWI image with b=0
+        # Bx = B-value
+        # D = App. diffusion coeff.
+        return Sb_0 * np.exp(-Bx*D)
+
+    def get_initial_parameters(self, roi_dx, voxel_dx):
+        cf_roi = self.cf_rois[roi_dx]
+        vox_series = cf_roi.get_voxel_series(voxel_dx)
+        init_val = cf_roi.initialisation_value        
+        if cf_roi.is_normalised:
+            return [1., init_val]
+        else:
+            return [np.max(vox_series), init_val]
+
+    def fit_parameter_bounds(self):
+        return (0., 0.), (np.inf, np.inf)
+
+    def estimate_cf_start_point(self, meas_vec, av_sig, init_val, cf_roi):
+        try:
+            return init_val
+        except:
+            mu.log("DWCurveFitAbstract2Param::estimate_cf_start_point(): failed to estimate start point, using "
+                   "default values of 1000.0", LogLevels.LOG_WARNING)
+            return 1000.0
+            
+    def get_model_eqn_strs(self):
+        eqn_strs = ["S(Bx) = Sb_0 * exp(-Bx * D)"]
+        return eqn_strs
 
 
 if __name__ == '__main__':

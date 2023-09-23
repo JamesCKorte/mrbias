@@ -72,8 +72,10 @@ def main():
     test_ss_config_list = ["SiemensSkyra", "SiemensSkyra"]
 
     # Philips DW test
-    #dcm_dir_d = "/Users/stanleynorris/Desktop/MRBIAS/new_data/Intial_SystemAndDiffusionDataset/DWI_Phantom/Images"
-    #dcm_dir_c = "/Users/stanleynorris/Desktop/MRBIAS/new_data/Intial_SystemAndDiffusionDataset/System_Phantom_with_CalibreAnalysis/Images"
+    #test_ss_config_list = []
+    #test_dcm_dir_list = []
+    #dcm_dir_d = "/Users/stanleynorris/Desktop/MRBIAS/mrbias/new_data/Intial_SystemAndDiffusionDataset/DWI_Phantom/Images"
+    #dcm_dir_c = "/Users/stanleynorris/Desktop/MRBIAS/mrbias/new_data/Intial_SystemAndDiffusionDataset/System_Phantom_with_CalibreAnalysis/Images"
     #test_dcm_dir_list.append(dcm_dir_c)
     #test_dcm_dir_list.append(dcm_dir_d)
     #test_ss_config_list.append("PhilipsIngeniaAmbitionX")
@@ -699,6 +701,7 @@ class ScanSessionAbstract(ABC):
         for set_name in imageset_names:
             df_b = cat_df[cat_df.ImageSet == set_name]
             df_b = df_b.sort_values(by=["DiffusionBValue"])
+            df_b["DiffusionBValue"] = df_b["DiffusionBValue"] * 1e-6 #convert b values from s/mm^2 to s/um^2 to match reference ADC units
             # get the datatype details
             bits_allocated = df_b.drop_duplicates(subset=["BitsAllocated"]).BitsAllocated.iloc[0]
             bits_stored = df_b.drop_duplicates(subset=["BitsStored"]).BitsStored.iloc[0]

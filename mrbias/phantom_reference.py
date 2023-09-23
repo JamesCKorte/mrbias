@@ -61,9 +61,9 @@ def main():
     field_strengths = [1.5]
     for field in field_strengths:
         ref_phan_batchDW = ReferencePhantomDiffusion1(field_strength=field,    # Tesla
-                                                         temperature=20.0)        # Celsius
+                                                         temperature=21.0)        # Celsius
         ReferencePhantomDiffusionFitInit(field_strength=field,  # Tesla
-                                             temperature=20.0)  # Celsius
+                                             temperature=21.0)  # Celsius
 
     mu.log("------ FIN -------", LogLevels.LOG_INFO)
 
@@ -246,10 +246,6 @@ class ReferencePhantomCaibreSystem(ReferencePhantomAbstract):
                                                     value_uncertainty=t2_value_uncertainty)
 
 
-#insert new ReferencePhantomDiffusion class below
-# will inherit from ReferencePhantom and will need a function such as ‘load_diffusion_values()’
-# copy the above class ReferencePhantomCaibreSystem(ReferencePhantomAbstract):
-
 class ReferencePhantomDiffusion(ReferencePhantomAbstract):
     def __init__(self, phantom_type, field_strength,
                  adc_reference_file,
@@ -290,9 +286,11 @@ class ReferencePhantomDiffusion(ReferencePhantomAbstract):
         # Populate the inv_map dictionary with corresponding keys for each value v
         for k, v in self.adc_concentration_roi_map.items():
             inv_map[v].append(k)
-        df = df.sort_values(['PVP Concentration (%)', 'Temp (C)'], ascending=[False, True])
+        df = df.sort_values(['PVP Concentration (%)', 'Temp (C)'], ascending=[True, True])
         df["roi_label"] = ""
-        for roi_concentration in df["PVP Concentration (%)"].tolist():
+        out_df =pd.DataFrame(columns=df.columns)
+        conc_list = list(set(df["PVP Concentration (%)"].tolist()))
+        for roi_concentration in conc_list:
             # find the concentration which is closest matching ROI
             nearest_contrn, error_contrn = mu.find_nearest_float(roi_concentration, concentration_list)
             assert error_contrn < self.concentration_error_tol, "ReferencePhantomDiffusion::load_adc_values(): " \
@@ -300,33 +298,42 @@ class ReferencePhantomDiffusion(ReferencePhantomAbstract):
                                                                 "exceeding tolerance (%0.5f)" %\
                                                                 (error_contrn, self.concentration_error_tol)
             # label the dataframe rows with the ROI label
-            df.loc[np.isclose(df['PVP Concentration (%)'], nearest_contrn), 'roi_label'] = inv_map[nearest_contrn]
+            for ROI_lab in inv_map[nearest_contrn]:
+                df.loc[np.isclose(df['PVP Concentration (%)'], nearest_contrn), 'roi_label'] = ROI_lab
+                temp_df = df[df['roi_label'] == ROI_lab]
+                out_df = pd.concat([out_df, temp_df], axis=0)
         # ---------------------------------------------------------
         
         # iterate over the valid rois and add to class ref_roi dictionary
-        for roi_label in df["roi_label"].tolist():
+        roi_list = out_df.sort_values(by="roi_label")["roi_label"].tolist()
+        roi_list = sorted(roi_list, key=lambda roi: int(roi.split('_')[2]))
+        unique_list = []
+        [unique_list.append(item) for item in roi_list if item not in unique_list]
+        for roi_label in unique_list:
             # find the closest temperature
-            df_roi = df[df.roi_label == roi_label]
-            temp_vec = np.array(df["Temp (C)"].tolist())
+            df_roi = out_df[out_df.roi_label == roi_label]
+            temp_vec = np.array(out_df["Temp (C)"].tolist())
+            temp_vec = np.unique(temp_vec)
             nearest_temp, error_temp = mu.find_nearest_float(self.temperature, temp_vec)
             if error_temp > self.temp_error_tol:
                 mu.log("ReferencePhantomDiffusion::load_adc_values() - closest temperature in reference file (%0.2f)"
                        "exceeds the temperature tolerance (%0.2f deg celsuis)" % (nearest_temp, self.temp_error_tol),
                        LogLevels.LOG_WARNING)
-            adc_value = df_roi[np.isclose(df_roi["Temp (C)"], nearest_temp)]["ADC reported (um^2/s)"].values[0]
+            T_arr = np.array(df_roi["Temp (C)"], dtype=float)
+            adc_value = df_roi[np.isclose(T_arr, nearest_temp)]["ADC reported (um^2/s)"].values[0]
             adc_value_uncertainty = None
-            if ("adc uncertainty (um^2/s)" in df_roi.columns):
-                adc_value_uncertainty = df_roi[np.isclose(df_roi["Temp (C)"], nearest_temp)]["ADC uncertainty (um^2/s)"].values[0]
+            if ("ADC Uncertainty (um^2/sec)" in df_roi.columns):
+                adc_value_uncertainty = df_roi[np.isclose(T_arr, nearest_temp)]["ADC Uncertainty (um^2/sec)"].values[0]
             self.ref_rois[roi_label] = ReferenceROI(roi_label,
                                                     value=adc_value,
-                                                    units="um^2/s",
+                                                    units="x10^-6 mm^2/s",
                                                     value_uncertainty=adc_value_uncertainty)
 
 
 class ReferencePhantomDiffusion1(ReferencePhantomDiffusion):
     def __init__(self, field_strength, temperature=None, serial_number=None):
         calibre_diff_phantom_dir = os.path.join(mu.reference_phantom_values_directory(),
-                                              "diffusion_phantom", "batch1_sn_lte_131-0143")
+                                              "diffusion_phantom", "batch1_sn_128-0155")
         mu.log("ReferencePhantomDiffusion1::__init__() [%0.1f T, %s deg. celsius]" % (field_strength, temperature),
                LogLevels.LOG_INFO)
         adc_reference_file = None

@@ -71,10 +71,8 @@ ROI_TEMPLATE_NAME = "siemens_skyra_3p0T"
 DICOM_DIRECTORY = os.path.join(base_dir, "data", "mrbias_testset_B")
 scan_session = ss.SystemSessionSiemensSkyra(DICOM_DIRECTORY)
 registration_method = roi_detect.RegistrationOptions.TWOSTAGE_MSMEGS_CORELGD # default
+partial_fov = False
 #################################################################################
-
-
-
 
 
 
@@ -102,7 +100,8 @@ test_geom_im = image_sets.ImageGeometric("TemplateImage", sitk_im)
 for geometric_image in geometric_images:
     # detect the ROIs and return the masks on the target image
     roi_detector = roi_detect.ROIDetector(geometric_image, TEST_TEMPLATE_DIR,
-                                          registration_method=registration_method)
+                                          registration_method=registration_method,
+                                          partial_fov=partial_fov)
     roi_detector.detect()
     # output to pdf
     roi_detector.write_pdf_summary_page(c, "ROI TEST: %s" % geometric_image.label)

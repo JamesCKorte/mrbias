@@ -25,11 +25,15 @@ import os
 from mrbias import MRBIAS
 
 # specify the configuration file to control the analysis
-configuration_filename = os.path.join("config", "example_auckland_cam_config.yaml")
+configuration_filename     = os.path.join("config", "example_auckland_cam_config.yaml")
+configuration_180_filename = os.path.join("config", "example_auckland_cam_180_config.yaml")
 # specific the dicom directories to analyse
-dicom_directory_a = r"Arpita/Hayley you will need to change this path to a data directory on your computer"
+dicom_directory_a     = r"add a path to your dicom directory"
+dicom_directory_a_180 = r"add a path to your dicom directory for a dataset with 180 degree rotation (this may be the same directory if taken in the same scan session)"
 
-# create a MRBIAS analysis object
-mrb = MRBIAS(configuration_filename, write_to_screen=True)
+# create a MRBIAS analysis objects
+mrb     = MRBIAS(configuration_filename, write_to_screen=True)
+mrb_180 = MRBIAS(configuration_180_filename, write_to_screen=True)
 # run the analysis (output will be created in the "output_directory" specified in the configuration file)
 mrb.analyse(dicom_directory_a)
+mrb_180.analyse(dicom_directory_a_180)

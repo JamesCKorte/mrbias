@@ -265,7 +265,7 @@ mrb.analyse(dicom_directory)
 You can now check under the output directory for the results of running MRBIAS on your images. A summary of the results can be found by inspecting the file "mri_bias.pdf".
 
 ## Concluding remarks
-We hope this has been helpful for you to make your own region of interest template. If anything is unclear and you would like some further assistance, or if you would like to share your template for others to use, please reach out to the MR-BIAS team with the [contact details on the main page](../README.md). 
+We hope this has been helpful for you to your own scanner. If anything is unclear and you would like some further assistance, or if you would like to share your template for others to use, please reach out to the MR-BIAS team with the [contact details on the main page](../README.md). 
 
 
 

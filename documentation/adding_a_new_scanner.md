@@ -27,7 +27,7 @@ In the example below, the image sets are sufficiently distinguished by the follo
 - ScanningTechnique
 - ImageType
 
-By using software such as ImageJ or 3DSlicer, you can inspect the metadata of each image set and deduce which tags will be used for sorting.
+By using software such as ImageJ or 3DSlicer, you can inspect the metadata of each image set and deduce which tags will be used for sorting. ![A screenshot of the table which shows how the metadata can filter the image sets](./assets/filter_table.png)
 
 ### Checking if MRBIAS already extracts the relevant metadata
 You can check if the tags you are using are already extracted by "mrbias/scan_session.py" by running the script "utils/add_new_scanner_protocol.py". You will simply need to modify this script to point to your data directory.

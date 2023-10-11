@@ -202,7 +202,7 @@ OUTPUT_PDF_FILENAME = "scan_session_test.pdf"
 scan_session = ss.SystemSessionPhilipsIngeniaAmbitionX(DICOM_DIRECTORY)
 #################################################################################
 ```
-Now you can look at the file "utils/scan_session_test.pdf" to see if MRBIAS is filtering image sets properly. The correct output looks like this in our![example](./assets/test_output.png)
+Now you can look at the file "utils/scan_session_test.pdf" to see if MRBIAS is filtering image sets properly. The correct output looks like this in our example:![example](./assets/test_output.png)
 
 ### Update the main MRBIAS pipeline
 

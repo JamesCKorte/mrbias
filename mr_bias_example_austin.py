@@ -31,13 +31,12 @@ configuration_filename_a = os.path.join("config", "example_system_config.yaml")
 configuration_filename_b = os.path.join("config", "example_diffusion_config.yaml")
 
 # specific the dicom directories to analyse
-dicom_directory_b = "new_data/Intial_SystemAndDiffusionDataset/DWI_Phantom/Images"
 dicom_directory_a = "new_data/Intial_SystemAndDiffusionDataset/System_Phantom_with_CalibreAnalysis/Images"
+dicom_directory_b = "new_data/Intial_SystemAndDiffusionDataset/DWI_Phantom/Images"
 
 # create MRBIAS analysis objects
-mrb = MRBIAS(configuration_filename_a, write_to_screen=True)
-mrb.analyse(dicom_directory_a)
-
+#mrb = MRBIAS(configuration_filename_a, write_to_screen=True)
+#mrb.analyse(dicom_directory_a)
 
 mrb = MRBIAS(configuration_filename_b, write_to_screen=True)
 mrb.analyse(dicom_directory_b)

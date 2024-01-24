@@ -67,7 +67,7 @@ from reportlab.pdfgen import canvas
 DICOM_DIRECTORY = os.path.join(base_dir, "data", "mrbias_testset_B")
 OUTPUT_LOG_FILENAME = "scan_session_test.log"
 OUTPUT_PDF_FILENAME = "scan_session_test.pdf"
-scan_session = ss.ScanSessionSiemensSkyra(DICOM_DIRECTORY)
+scan_session = ss.SystemSessionSiemensSkyra(DICOM_DIRECTORY)
 #################################################################################
 
 

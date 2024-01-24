@@ -225,15 +225,15 @@ def main():
             if not os.path.isdir(model_out_dir):
                 os.mkdir(model_out_dir)
             model.write_data(model_out_dir)
-            model.write_pdf_summary_pages(c)
+            model.write_pdf_summary_pages(c, is_system=True)
 
-        #for model in [test_dw_curvefit2p]: #for DWI
+        for model in [test_dw_curvefit2p]: #for DWI
             # create an output directory
-            #model_out_dir = model.get_imset_model_preproc_name()
-            #if not os.path.isdir(model_out_dir):
-                #os.mkdir(model_out_dir)
-            #model.write_data(model_out_dir)
-            #model.write_pdf_summary_pages_dw(c)
+            model_out_dir = model.get_imset_model_preproc_name()
+            if not os.path.isdir(model_out_dir):
+                os.mkdir(model_out_dir)
+            model.write_data(model_out_dir)
+            model.write_pdf_summary_pages(c, is_system=False)
 
 
     # save the pdf report
@@ -522,7 +522,9 @@ class CurveFitROI(imset.ImageSetROI):
                     data_list.append(vox_meas_list)
         # create the ROI dataframe and append it to the passed dataframe
         df_roi = pd.DataFrame(data_list, columns=self.get_voxel_dataframe_column_names(cf_model))
-        return df.append(df_roi, ignore_index=True)
+        df_roi[['Included', 'Averaged', 'Normalised']] = df_roi[['Included', 'Averaged', 'Normalised']].astype(bool)
+        df[['Included', 'Averaged', 'Normalised']] = df[['Included', 'Averaged', 'Normalised']].astype(bool)
+        return pd.concat([df, df_roi], ignore_index=True)
 
 
 
@@ -610,7 +612,9 @@ class CurveFitROI(imset.ImageSetROI):
                 data_list.append(mean_val)
         # create the ROI dataframe and append it to the passed dataframe
         df_roi = pd.DataFrame([data_list], columns=col_names)
-        return df.append(df_roi, ignore_index=True)
+        df_roi[['Averaged', 'Normalised', 'Clipped']] = df_roi[['Averaged', 'Normalised', 'Clipped']].astype(bool)
+        df[['Averaged', 'Normalised', 'Clipped']] = df[['Averaged', 'Normalised', 'Clipped']].astype(bool)
+        return pd.concat([df, df_roi], ignore_index=True)
 
 
     def visualise(self, cf_model, ax, line_alpha=0.8, marker_alpha=0.5, show_y_label=False):
@@ -1092,19 +1096,12 @@ class CurveFitAbstract(ABC):
         return header_str, col_names, row_fmt_str
 
 
-    def write_pdf_summary_pages(self, c):
+    def write_pdf_summary_pages(self, c, is_system):
         if self.rois_found:
             self.write_pdf_fit_table_page(c)
             self.write_pdf_roi_page(c)
             self.write_pdf_voxel_fit_page(c)
-            self.write_pdf_fit_accuracy_page(c) #add flags to stop code duplication! XXXX / make fn more general
-
-    def write_pdf_summary_pages_dw(self, c):
-        if self.rois_found:
-            self.write_pdf_fit_table_page(c)
-            self.write_pdf_roi_page(c)
-            self.write_pdf_voxel_fit_page(c)
-            self.write_pdf_fit_accuracy_page_dw(c)
+            self.write_pdf_fit_accuracy_page(c, is_system)
 
     def write_pdf_roi_page(self, c):
         pdf = mu.PDFSettings()
@@ -1287,7 +1284,7 @@ class CurveFitAbstract(ABC):
         # -------------------------------------------------------------
         c.showPage()  # new page
 
-    def write_pdf_fit_accuracy_page(self, c,
+    def write_pdf_fit_accuracy_page(self, c, is_system,
                                     central_limit_pcnt=50,
                                     central_ticks=[-50, -40, -30, -20, -10, 0, 10, 20, 30, 40, 50],
                                     abs_limit_line=25):
@@ -1312,7 +1309,10 @@ class CurveFitAbstract(ABC):
 
         # setup the figure
         with sns.axes_style(mu.SEABORN_STYLE):
-            f, (ax1, ax2, ax3) = plt.subplots(3, 1, gridspec_kw={'height_ratios': [1, 2, 1]})
+            if is_system == True:
+                f, (ax1, ax2, ax3) = plt.subplots(3, 1, gridspec_kw={'height_ratios': [1, 2, 1]})
+            if is_system == False:
+                f, (ax2) = plt.subplots(1, 1)
             f.suptitle(sup_title)
             f.set_size_inches(12, 8)
             f.subplots_adjust(bottom=0.2)
@@ -1323,7 +1323,11 @@ class CurveFitAbstract(ABC):
             for roi_label in roi_labels:
                 col_pal.append(col_settings.get_ROI_colour(roi_label))
 
-            for ax in [ax1, ax2, ax3]:
+            if is_system == True:
+                axs = [ax1, ax2, ax3]
+            if is_system == False:
+                axs = [ax2]
+            for ax in axs:
                 # draw the error plot
                 box_linewidth = 1
                 strip_jitter = 0.25
@@ -1337,7 +1341,7 @@ class CurveFitAbstract(ABC):
                             order=roi_labels, palette=col_pal)
                 sns.stripplot(x="RoiLabel", y=error_name, data=df_plot, ax=ax,
                               jitter=strip_jitter, dodge=True, alpha=strip_alpha,
-                              order=roi_labels, palette=col_pal)
+                              order=roi_labels, palette=col_pal, hue="RoiLabel", legend=False)
 
             # update the x labels to include the reference value
             xtick_label_vec = []
@@ -1353,112 +1357,27 @@ class CurveFitAbstract(ABC):
                     xtick_label_vec.append("%s\n(%s=%0.2f ms)" % (roi_name,
                                                                 reference_label.replace("_reference", "_ref"),
                                                                 roi_ref_relax_val))
-            ax3.get_xaxis().set_ticklabels(xtick_label_vec)
-
-            abs_max_lim = np.max(np.abs(ax1.get_ylim()[1]))
-            ax1.set(ylim=(central_limit_pcnt, abs_max_lim))
-            ax2.set(ylim=(-central_limit_pcnt, central_limit_pcnt))
-            ax3.set(ylim=(-abs_max_lim, -central_limit_pcnt))
+            
+            if is_system == True:
+                ax3.get_xaxis().set_ticklabels(xtick_label_vec)
+                abs_max_lim = np.max(np.abs(ax1.get_ylim()[1]))
+                ax1.set(ylim=(central_limit_pcnt, abs_max_lim))
+                ax2.set(ylim=(-central_limit_pcnt, central_limit_pcnt))
+                ax3.set(ylim=(-abs_max_lim, -central_limit_pcnt))
             # style x axis labels
-            plt.setp(ax3.get_xticklabels(), rotation=45, horizontalalignment="right")
-            for ax in [ax1, ax2]:
-                ax.get_xaxis().set_ticklabels([])
-                ax.set_xlabel("")
-            # style y axis labels
-            for ax in [ax1, ax3]:
-                ax.set_ylabel("")
-            ax2.set(yticks=central_ticks)
-            ax2.axhline(y=0, linewidth=2, color='gray', alpha=0.5)
-            for ylim in [-abs_limit_line, abs_limit_line]:
-                ax2.axhline(y=ylim, linewidth=2, color='gray', linestyle="--", alpha=0.5)
-
-            # draw it on the pdf
-            pil_f = mu.mplcanvas_to_pil(f)
-            width, height = pil_f.size
-            height_3d, width_3d = pdf.page_width * (height / width), pdf.page_width
-            c.drawImage(ImageReader(pil_f),
-                        0,
-                        pdf.page_height - pdf.top_margin - height_3d - pdf.line_width,
-                        width_3d,
-                        height_3d)
-            plt.close(f)
-        # -------------------------------------------------------------
-        c.showPage()  # new page
-
-    def write_pdf_fit_accuracy_page_dw(self, c,
-                                    central_limit_pcnt=50,
-                                    central_ticks=[-50, -40, -30, -20, -10, 0, 10, 20, 30, 40, 50],
-                                    abs_limit_line=25):
-        pdf = mu.PDFSettings()
-        c.setFont(pdf.font_name, pdf.small_font_size)  # set to a fixed width font
-        sup_title = "CurveFit [%s - %s] <%s>" % (self.get_model_name(),
-                                                 self.get_preproc_name(),
-                                                 self.get_imageset_name())
-        # get the fit data and restructure
-        df = self.get_voxel_dataframe()
-        df = df.sort_values(['RoiIndex'], ascending=[True])
-        df = df.drop_duplicates(subset=["RoiLabel", "VoxelID"])
-        symbol_of_interest = self.get_symbol_of_interest()
-        reference_label = "%s_reference" % symbol_of_interest
-        error_name = "%s (%sbias)" % (self.get_symbol_of_interest(), "%")
-        df[error_name] = 100.0*(df[symbol_of_interest]-df[reference_label])/df[reference_label]
-        df_plot = df[["RoiLabel",
-                      "VoxelID",
-                      symbol_of_interest,
-                      reference_label,
-                      error_name]]
-
-        # setup the figure
-        with sns.axes_style(mu.SEABORN_STYLE):
-            f, (ax2) = plt.subplots(1, 1)
-            f.suptitle(sup_title)
-            f.set_size_inches(12, 8)
-            f.subplots_adjust(bottom=0.2)
-            # create the color pallete
-            roi_labels = df_plot.drop_duplicates(subset=["RoiLabel"]).RoiLabel
-            col_pal = []
-            col_settings = mu.ColourSettings()
-            for roi_label in roi_labels:
-                col_pal.append(col_settings.get_ROI_colour(roi_label))
-
-            for ax in [ax2]:
-                # draw the error plot
-                box_linewidth = 1
-                strip_jitter = 0.25
-                strip_alpha = 0.5
-                if 'average' in self.preproc_dict.keys():
-                    box_linewidth = 0
-                    strip_jitter = 0
-                    strip_alpha = 0.9
-                sns.boxplot(x="RoiLabel", y=error_name, data=df_plot, ax=ax,
-                            boxprops=dict(alpha=.5), showfliers=False, linewidth=box_linewidth,
-                            order=roi_labels, palette=col_pal)
-                sns.stripplot(x="RoiLabel", y=error_name, data=df_plot, ax=ax,
-                              jitter=strip_jitter, dodge=True, alpha=strip_alpha,
-                              order=roi_labels, palette=col_pal)
-
-            # update the x labels to include the reference value
-            xtick_label_vec = []
-            for roi_name in roi_labels:
-                df_ROIS = df_plot.drop_duplicates(subset=["RoiLabel"])
-                df_roi = df_ROIS[df_ROIS["RoiLabel"] == roi_name]
-                roi_ref_relax_val = df_roi[reference_label]
-                if self.get_model_name() == "DWCurveFit2param":
-                    xtick_label_vec.append("%s\n(%s=%0.2f µm²/s)" % (roi_name,
-                                                                        reference_label.replace("_reference", "_ref"),
-                                                                        roi_ref_relax_val))
-                else:
-                    xtick_label_vec.append("%s\n(%s=%0.2f ms)" % (roi_name,
-                                                                reference_label.replace("_reference", "_ref"),
-                                                                roi_ref_relax_val))
-            ax2.get_xaxis().set_ticklabels(xtick_label_vec)
-
-            ax2.set(ylim=(-central_limit_pcnt, central_limit_pcnt))
-            # style x axis labels
-            plt.setp(ax2.get_xticklabels(), rotation=45, horizontalalignment="right")
-            for ax in [ax2]:
-                ax.get_xaxis().set_ticklabels([])
-                ax.set_xlabel("")
+                plt.setp(ax3.get_xticklabels(), rotation=45, horizontalalignment="right")
+                for ax in [ax1, ax2]:
+                    ax.get_xaxis().set_ticklabels([])
+                    ax.set_xlabel("")
+                # style y axis labels
+                for ax in [ax1, ax3]:
+                    ax.set_ylabel("")
+            if is_system == False:
+                ax2.get_xaxis().set_ticklabels(xtick_label_vec)
+                ax2.set(ylim=(-central_limit_pcnt, central_limit_pcnt))
+                plt.setp(ax2.get_xticklabels(), rotation=45, horizontalalignment="right")
+                ax2.get_xaxis().set_ticklabels([])
+                ax2.set_xlabel("")
             # style y axis labels
             ax2.set(yticks=central_ticks)
             ax2.axhline(y=0, linewidth=2, color='gray', alpha=0.5)

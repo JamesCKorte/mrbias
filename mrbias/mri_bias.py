@@ -27,6 +27,7 @@ import os
 import yaml
 from collections import OrderedDict
 import numbers
+import pandas as pd
 
 from reportlab.lib.pagesizes import landscape
 from reportlab.pdfgen import canvas
@@ -337,7 +338,7 @@ class MRBIAS(object):
                                                                 exclusion_label=exclusion_label)
                 if mdl is not None:
                     # add summary page to pdf
-                    mdl.write_pdf_summary_pages(c)
+                    mdl.write_pdf_summary_pages(c, is_system=True)
                     # write the data output
                     d_dir = os.path.join(out_dir, mdl.get_imset_model_preproc_name())
                     if not os.path.isdir(d_dir):
@@ -369,7 +370,7 @@ class MRBIAS(object):
                                                                 centre_offset_2D=centre_offset_2D)
                 if mdl is not None:
                     # add summary page to pdf
-                    mdl.write_pdf_summary_pages(c)
+                    mdl.write_pdf_summary_pages(c, is_system=True)
                     # write the data output
                     d_dir = os.path.join(out_dir, mdl.get_imset_model_preproc_name())
                     if not os.path.isdir(d_dir):
@@ -395,7 +396,7 @@ class MRBIAS(object):
                                                                exclusion_label=exclusion_label)
                 if mdl is not None:
                     # add summary page to pdf
-                    mdl.write_pdf_summary_pages(c)
+                    mdl.write_pdf_summary_pages(c, is_system=True)
                     # write the data output
                     d_dir = os.path.join(out_dir, mdl.get_imset_model_preproc_name())
                     if not os.path.isdir(d_dir):
@@ -404,6 +405,10 @@ class MRBIAS(object):
                                    write_voxel_data=cf_write_vox_data)
         # ----------------------------------------------------
         # DWI
+
+        dw_2param_mdl_list = []
+        dw_3param_mdl_list = [] #for as many signal models as required
+
         for dw_imageset in dw_imagesets:
             dw_imageset.update_ROI_mask()  # trigger a mask update
             # get model options from configuration file
@@ -415,9 +420,10 @@ class MRBIAS(object):
                                                                 reference_phantom=ref_phan,
                                                                 initialisation_phantom=init_phan,
                                                                 preprocessing_options=preproc_dict)
+                    dw_2param_mdl_list.append(mdl)
                 if mdl is not None:
                     # add summary page to pdf
-                    mdl.write_pdf_summary_pages_dw(c)
+                    mdl.write_pdf_summary_pages(c, is_system=False)
                     # write the data output
                     d_dir = os.path.join(out_dir, mdl.get_imset_model_preproc_name())
                     if not os.path.isdir(d_dir):
@@ -425,11 +431,119 @@ class MRBIAS(object):
                     mdl.write_data(data_dir=d_dir,
                                    write_voxel_data=cf_write_vox_data)
 
-
+        if len(dw_2param_mdl_list):
+            #summary page in the pdf per model
+            self.write_pdf_aggregated_diffusion_page(dw_2param_mdl_list, c, out_dir)
         # close the summary pdf
         c.save()
         # close the logger
         mu.detatch_logger()
+
+    def write_pdf_aggregated_diffusion_page(self, mdl_list, c, data_dir):
+        df_list = []
+        for mdl in mdl_list:
+            df_list.append(mdl.get_summary_dataframe())
+
+        # calculate summary metrics and create summary df
+        comb_df = pd.concat(df_list, ignore_index=True)
+        sorted_df = comb_df.sort_values(by='RoiIndex', ascending=True)
+        pooled_df = sorted_df.groupby('RoiLabel')['D (mean)'].agg(['mean', 'std'])
+        pooled_df = pooled_df.sort_values(by='RoiLabel', key=lambda x: x.str.extract('(\d+)', expand=False).astype(int))
+        pooled_df['RC_st'] = 2.77 * pooled_df.iloc[:, 1]  # Assuming column 1 is ADC
+        pooled_df['CV_st'] = 100 * pooled_df.iloc[:, 1] / pooled_df.iloc[:, 0]
+        df_list[0] = df_list[0].set_index('RoiLabel')
+        pooled_df['ref'] = df_list[0]['D_reference']
+
+        pooled_df['bias (%)'] = 100 * ((pooled_df['mean'] - pooled_df['ref']) / pooled_df['ref'])
+        pooled_df.reset_index(inplace=True)
+        pooled_df = pooled_df[['RoiLabel', 'ref', 'mean', 'std', 'RC_st', 'CV_st', 'bias (%)']]
+
+
+        # print the pooled dataframe
+        mu.log("Summary metric dataframe \n (%s)" %
+                   pooled_df, LogLevels.LOG_INFO)
+
+        # write summary metrics to table in PDF
+        # prepare PDF
+        pdf = mu.PDFSettings()
+        c.setFont(pdf.font_name, pdf.font_size)
+        sup_title = "Repeatability metrics across 4 short-term scan repeats"
+        c.drawString(pdf.left_margin*6, pdf.page_height - pdf.top_margin, sup_title)
+
+        c.setFont(pdf.font_name, pdf.small_font_size)
+        
+        # need to define the 3 components for the table writing -> temp
+        col_names = ["RoiLabel", "ref", "mean", "std", "RC_st", "CV_st", "bias (%)"]
+        header_str = "| ROI LABEL |"
+        row_fmt_str = "| %9s |"
+
+        for quant in col_names:
+            if quant != "RoiLabel":
+                header_str = "%s %s |" % (header_str, " %8s " % quant)
+                row_fmt_str = row_fmt_str + " %10.2f |"
+        # table writing
+        table_width = len(header_str)
+
+        off_dx = 3.5
+        c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - off_dx * pdf.small_line_width,
+                         "=" * table_width)
+        c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - (off_dx + 1) * pdf.small_line_width, header_str)
+        c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - (off_dx + 2) * pdf.small_line_width,
+                         "=" * table_width)
+        off_dx = off_dx + 3
+
+        # table content
+        for line_dx, (idx, r) in enumerate(pooled_df.iterrows()):
+            val_list = []
+            for name in col_names:
+                val_list.append(r[name])
+            c.drawString(pdf.left_margin,
+                             pdf.page_height - pdf.top_margin - pdf.small_line_width * (line_dx + off_dx),
+                             row_fmt_str % tuple(val_list))
+        # final borderline
+        c.drawString(pdf.left_margin,
+                         pdf.page_height - pdf.top_margin - pdf.small_line_width * (line_dx + off_dx + 1),
+                         "=" * table_width)
+
+        s_dx = line_dx + off_dx + 8
+
+        # -------------------------------------------------------------
+        # TABLE WITH EQUATION DETAILS
+        # -------------------------------------------------------------
+        # write the model equation and a list of parameters
+        off_dx = 0
+        c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - pdf.small_line_width * (s_dx + off_dx),
+                        "SUMMARY METRICS:")
+        off_dx += 2
+        off_dx = off_dx + 1
+        # table of parameters
+        header_str = "|  Metric  |  Description                                                 |                      Symbol                      |"
+        table_width = len(header_str)
+        c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - pdf.small_line_width * (s_dx + off_dx), "-" * table_width)
+        c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - pdf.small_line_width * (s_dx + off_dx + 1), header_str)
+        c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - pdf.small_line_width * (s_dx + off_dx + 2), "-" * table_width)
+        off_dx = off_dx + 3
+        metrics = [("ref", "Reference ADC value as measured by NIST", "ADC_ref"), 
+                   ("mean", "Mean ADC value across 4 short-term repeats", "ADC_mean"), 
+                   ("std", "Standard deviation of ADC values across 4 short-term repeats", "SD"), 
+                   ("RC_st", "Repeatability coefficient", "RC_st = 2.77 * SD"), 
+                   ("CV_st", "Coefficient of variation", "CV_st = 100% * (SD/ADC_mean)"), 
+                   ("bias (%)", "%Bias", "bias(%) = 100% * (ADC_mean - ADC_ref)/ADC_ref")]
+        for p_name, descr, eqn in metrics:
+            c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - pdf.small_line_width * (s_dx + off_dx),
+                            "| %8s | %-60s | %-48s |" % (p_name, descr, eqn))
+            off_dx = off_dx + 1
+        c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - pdf.small_line_width * (s_dx + off_dx), "-" * table_width)
+        s_dx += off_dx + 6
+
+        c.showPage()  # new page
+
+        # write summary metrics df to disk as csv
+        # pooled_df
+        summary_datafilename = os.path.join(data_dir, "repeatability_metrics.csv")
+        mu.log("Writing repeatability metrics data to %s" %
+                (summary_datafilename), LogLevels.LOG_INFO)
+        pooled_df.to_csv(summary_datafilename)
 
 
     def write_pdf_title_page(self, c):

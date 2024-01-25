@@ -117,7 +117,7 @@ def analyse(self, dicom_directory):
             t1_vir_imagesets = ss.get_t1_vir_image_sets()
             t1_vfa_imagesets = ss.get_t1_vfa_image_sets()
             t2_mse_imagesets = ss.get_t2_mse_image_sets()
-			t2_star_imagesets = ss.get_t2star_image_sets()
+            t2_star_imagesets = ss.get_t2star_image_sets()
             ss.write_pdf_summary_page(c)
         # log some basic details of the imagesets
         for t1_vir_imageset in t1_vir_imagesets:

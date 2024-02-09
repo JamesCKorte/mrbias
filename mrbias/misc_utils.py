@@ -22,6 +22,7 @@ Change Log:
 02-August-2021  :               (James Korte) : Initial code for      MR-BIAS v0.0.0
   23-June-2022  :               (James Korte) : GitHub Release        MR-BIAS v1.0.0
    16-Jan-2023  :               (James Korte) : Goodness of fit added MR-BIAS v1.0.1
+   10-Feb-2024  :               (James Korte) : Increased total number of ROIs
 """
 
 import re
@@ -56,18 +57,18 @@ MRBIAS_REPORT_IMAGE_DPI = 500
 # The Label->IDX maps are then for each specific ROI type (T1/T2/PD) and also map to the input yaml files
 ROI_IDX_LABEL_MAP = OrderedDict()
 T1_ROI_LABEL_IDX_MAP = OrderedDict()
-for i in range(14):
+for i in range(32):
     ROI_IDX_LABEL_MAP[i+1] = "t1_roi_%d" % (i+1)
     T1_ROI_LABEL_IDX_MAP["t1_roi_%d" % (i+1)] = i+1
 T2_ROI_LABEL_IDX_MAP = OrderedDict()
-for i in range(14):
-    ROI_IDX_LABEL_MAP[i+14+1] = "t2_roi_%d" % (i+1)
-    T2_ROI_LABEL_IDX_MAP["t2_roi_%d" % (i+1)] = i+14+1
+for i in range(32):
+    ROI_IDX_LABEL_MAP[i+32+1] = "t2_roi_%d" % (i+1)
+    T2_ROI_LABEL_IDX_MAP["t2_roi_%d" % (i+1)] = i+32+1
 
 DW_ROI_LABEL_IDX_MAP = OrderedDict()
-for i in range(13):
-    ROI_IDX_LABEL_MAP[i+28+1] = "dw_roi_%d" % (i+1)
-    DW_ROI_LABEL_IDX_MAP["dw_roi_%d" % (i+1)] = i+28+1
+for i in range(32):
+    ROI_IDX_LABEL_MAP[i+64+1] = "dw_roi_%d" % (i+1)
+    DW_ROI_LABEL_IDX_MAP["dw_roi_%d" % (i+1)] = i+64+1
 # create a reverse lookup
 ROI_LABEL_IDX_MAP = {v: k for k, v in ROI_IDX_LABEL_MAP.items()}
 

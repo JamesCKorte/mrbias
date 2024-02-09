@@ -208,7 +208,7 @@ class ROITemplate(object):
                            "specified in yaml file : %s" % (roi_label, yaml_file), LogLevels.LOG_WARNING)
             else:
                 mu.log("ROITemplate::__parse_roi_yaml_file(): ROI(%s) not specified in yaml file : %s" %
-                       (roi_label, yaml_file), LogLevels.LOG_WARNING)
+                       (roi_label, yaml_file), LogLevels.LOG_INFO)
         # return the ROI dictionary
         return roi_dict
 
@@ -259,11 +259,11 @@ class ROITemplate(object):
             slice_vec.append(roi.get_slice_dx())
         return int(np.median(np.array(slice_vec)))
     def get_t1_roi_values(self):
-        return list(T1_ROI_LABEL_IDX_MAP.values())
+        return list(self.t1_roi_dict.keys())
     def get_t2_roi_values(self):
-        return list(T2_ROI_LABEL_IDX_MAP.values())
+        return list(self.t2_roi_dict.keys())
     def get_dw_roi_values(self):
-        return list(DW_ROI_LABEL_IDX_MAP.values())
+        return list(self.dw_roi_dict.keys())
 
 
 

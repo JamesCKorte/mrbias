@@ -30,6 +30,7 @@ from enum import IntEnum
 from abc import ABC, abstractmethod
 from collections import OrderedDict
 
+import SimpleITK as sitk
 import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
@@ -706,7 +707,7 @@ class CurveFitAbstract(ABC):
     """
     def __init__(self, imageset, reference_phantom, initialisation_phantom, preprocessing_options,
                  exclusion_list=None, exclusion_label=None, optimisation_lib=OptiOptions.LMFIT,
-                 use_2D_roi=False, centre_offset_2D=0):
+                 use_2D_roi=False, centre_offset_2D_list=[0]):
         """
 
         Args:
@@ -725,20 +726,21 @@ class CurveFitAbstract(ABC):
         self.cf_rois = OrderedDict()
 
         self.use_2D_roi = use_2D_roi
-        self.centre_offset_2D = centre_offset_2D
+        self.centre_offset_2D_list = centre_offset_2D_list
 
         mu.log("CurveFit(%s)::__init__(): creating curve fit ROIs ..." % self.get_model_name(), LogLevels.LOG_INFO)
         # construct a set of curve fitting ROIs including the raw voxel data
         # - get the raw data
         im_set_roi_dict = self.image_set.get_ROI_data()
         # find a central slice over all the ROIs (central slice for image)
-        centre_dx = None
+        centre_dx_list = []
         if self.use_2D_roi:
             all_z_arr = []
             for roi_dx, im_roi in im_set_roi_dict.items():
                 all_z_arr = all_z_arr + im_roi.voxel_data_xyz[0].tolist()
             all_z_arr = np.array(all_z_arr).flatten()
-            centre_dx = int(np.mean(all_z_arr)) + self.centre_offset_2D
+            for centre_offset_2D in self.centre_offset_2D_list:
+                centre_dx_list.append(int(np.mean(all_z_arr)) + centre_offset_2D)
         # - link the data with an (x,y,z) coordinate
         for roi_dx, im_roi in im_set_roi_dict.items():
             ref_roi = self.reference_phantom.get_roi(im_roi.label)
@@ -747,8 +749,9 @@ class CurveFitAbstract(ABC):
             voxel_xyz_arr = im_roi.voxel_data_xyz
             # use only a central slice if 2D ROI is configured
             if self.use_2D_roi:
-                assert centre_dx is not None
-                #centre_dx = int(np.mean(im_roi.voxel_data_xyz[0]))
+                mu.log("CurveFit(%s)::__init__(): adding the 2D region only ..." % self.get_model_name(),
+                       LogLevels.LOG_INFO)
+                assert len(centre_dx_list)
                 voxel_data_arr = []
                 voxel_x_arr = []
                 voxel_y_arr = []
@@ -757,7 +760,7 @@ class CurveFitAbstract(ABC):
                                              im_roi.voxel_data_xyz[0],
                                              im_roi.voxel_data_xyz[1],
                                              im_roi.voxel_data_xyz[2]):
-                    if x == centre_dx:
+                    if x in centre_dx_list:
                         voxel_data_arr.append(vox_data)
                         voxel_x_arr.append(x)
                         voxel_y_arr.append(y)
@@ -1110,8 +1113,23 @@ class CurveFitAbstract(ABC):
                                                  self.get_preproc_name(),
                                                  self.get_imageset_name())
         # get some data from the image set
-        self.image_set.write_roi_pdf_page(c, sup_title)
+        mask_im = self.construct_mask_from_preproc_rois()
+        self.image_set.write_roi_pdf_page(c, sup_title, mask_override_sitk_im=mask_im)
 
+    def construct_mask_from_preproc_rois(self):
+        # make an empty image
+        all_mask_im = self.image_set.get_roi_image()
+        mask_arr = np.zeros_like(sitk.GetArrayFromImage(all_mask_im))
+        # add the voxels which are used in analysis
+        for roi_dx, cf_roi in self.cf_rois.items():
+            for x, y, z in zip(cf_roi.voxel_data_xyz[0], cf_roi.voxel_data_xyz[1], cf_roi.voxel_data_xyz[2]):
+                mask_arr[x, y, z] = roi_dx
+        # make the simpleITK image
+        mask_im = sitk.GetImageFromArray(mask_arr)
+        mask_im.SetOrigin(all_mask_im.GetOrigin())
+        mask_im.SetSpacing(all_mask_im.GetSpacing())
+        mask_im.SetDirection(all_mask_im.GetDirection())
+        return mask_im
 
     def write_pdf_fit_table_page(self, c):
         # check ROI data exists
@@ -1416,12 +1434,12 @@ class CurveFitAbstract(ABC):
                 preproc_str = "%s-%dpct" % (preproc_str, self.preproc_dict['percent_clipped_threshold'])
         # add 2D tag if using a central slice
         if self.use_2D_roi:
-            if self.centre_offset_2D > 0:
-                preproc_str = "%s_2D+%d" % (preproc_str, np.abs(self.centre_offset_2D))
-            elif self.centre_offset_2D < 0:
-                preproc_str = "%s_2D-%d" % (preproc_str, np.abs(self.centre_offset_2D))
-            else:
-                preproc_str = "%s_2D" % preproc_str
+            preproc_str = "%s_2D_" % preproc_str
+            for centre_offset_2D in self.centre_offset_2D_list:
+                if centre_offset_2D >= 0:
+                    preproc_str = "%s+%d" % (preproc_str, np.abs(centre_offset_2D))
+                else:# centre_offset_2D< 0:
+                    preproc_str = "%s-%d" % (preproc_str, np.abs(centre_offset_2D))
         # user exclusion tag
         if (self.exclusion_list is not None) and (self.exclusion_label is not None):
             if preproc_str == "":
@@ -1654,7 +1672,7 @@ class T1VIRCurveFitAbstract4Param(CurveFitAbstract):
 
 class T1VFACurveFitAbstract2Param(CurveFitAbstract):
     def __init__(self, imageset, reference_phantom, initialisation_phantom, preprocessing_options,
-                 angle_exclusion_list=None, exclusion_label=None, use_2D_roi=False, centre_offset_2D=0):
+                 angle_exclusion_list=None, exclusion_label=None, use_2D_roi=False, centre_offset_2D_list=[0]):
         self.repetition_time = imageset.repetition_time_list[0]
         self.eqn_param_map = OrderedDict()
         self.eqn_param_map["M0"] = ("Equilibrium magnetisation", "max(S(alpha))", "0.0", "inf")
@@ -1663,7 +1681,7 @@ class T1VFACurveFitAbstract2Param(CurveFitAbstract):
         self.eqn_param_map["TR"] = ("Repetition time", "as measured", "-", "-")
         super().__init__(imageset, reference_phantom, initialisation_phantom, preprocessing_options,
                          angle_exclusion_list, exclusion_label,
-                         use_2D_roi=use_2D_roi, centre_offset_2D=centre_offset_2D)
+                         use_2D_roi=use_2D_roi, centre_offset_2D_list=centre_offset_2D_list)
 
     def get_model_name(self):
         return "T1VFACurveFit2param"
@@ -1772,12 +1790,14 @@ class T2SECurveFitAbstract3Param(CurveFitAbstract):
 
 
 class DWCurveFitAbstract2Param(CurveFitAbstract):
-    def __init__(self, imageset, reference_phantom, initialisation_phantom, preprocessing_options):
+    def __init__(self, imageset, reference_phantom, initialisation_phantom, preprocessing_options,
+                 use_2D_roi=False, centre_offset_2D_list=[0]):
         self.eqn_param_map = OrderedDict()
         self.eqn_param_map["Sb_0"] = ("Signal at b_0", "max(Sb_x)", "0.0", "inf")
         self.eqn_param_map["D"] = ("D", "D", "0.0", "inf")
         self.eqn_param_map["Bx"] = ("b value", "as measured", "-", "-")
-        super().__init__(imageset, reference_phantom, initialisation_phantom, preprocessing_options)
+        super().__init__(imageset, reference_phantom, initialisation_phantom, preprocessing_options,
+                         use_2D_roi=use_2D_roi, centre_offset_2D_list=centre_offset_2D_list)
 
     def get_model_name(self):
         return "DWCurveFit2param"

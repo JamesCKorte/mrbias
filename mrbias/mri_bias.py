@@ -354,7 +354,7 @@ class MRBIAS(object):
             angle_exclusion_list = cf_config.get_t1_vfa_exclusion_list()
             exclusion_label = cf_config.get_t1_vfa_exclusion_label()
             use_2D_roi = cf_config.get_t1_vfa_2D_roi_setting()
-            centre_offset_2D = cf_config.get_t1_vfa_2D_slice_offset()
+            centre_offset_2D_list = cf_config.get_t1_vfa_2D_slice_offset_list()
             if use_2D_roi:
                 mu.log("MR-BIAS::analyse() : \tT1-VFA use a 2D ROI ...", LogLevels.LOG_INFO)
             for t1_vfa_model_str in t1_vfa_model_list:
@@ -367,7 +367,7 @@ class MRBIAS(object):
                                                                 angle_exclusion_list=angle_exclusion_list,
                                                                 exclusion_label=exclusion_label,
                                                                 use_2D_roi=use_2D_roi,
-                                                                centre_offset_2D=centre_offset_2D)
+                                                                centre_offset_2D_list=centre_offset_2D_list)
                 if mdl is not None:
                     # add summary page to pdf
                     mdl.write_pdf_summary_pages(c, is_system=True)
@@ -413,13 +413,19 @@ class MRBIAS(object):
             dw_imageset.update_ROI_mask()  # trigger a mask update
             # get model options from configuration file
             dw_model_list = cf_config.get_dw_models()
+            use_2D_roi = cf_config.get_dw_2D_roi_setting()
+            centre_offset_2D_list = cf_config.get_dw_2D_slice_offset_list()
+            if use_2D_roi:
+                mu.log("MR-BIAS::analyse() : \tDW use a 2D ROI ...", LogLevels.LOG_INFO)
             for dw_model_str in dw_model_list:
                 mdl = None
                 if dw_model_str == "2_param":
                     mdl = curve_fit.DWCurveFitAbstract2Param(imageset=dw_imageset,
-                                                                reference_phantom=ref_phan,
-                                                                initialisation_phantom=init_phan,
-                                                                preprocessing_options=preproc_dict)
+                                                             reference_phantom=ref_phan,
+                                                             initialisation_phantom=init_phan,
+                                                             preprocessing_options=preproc_dict,
+                                                             use_2D_roi=use_2D_roi,
+                                                             centre_offset_2D_list=centre_offset_2D_list)
                     dw_2param_mdl_list.append(mdl)
                 if mdl is not None:
                     # add summary page to pdf
@@ -945,16 +951,18 @@ class MRIBiasCurveFitConfig(MRIBIASConfiguration):
                "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
         return default_value
 
-    def get_t1_vfa_2D_slice_offset(self):
+    def get_t1_vfa_2D_slice_offset_list(self):
         cf_config = super().get_curve_fitting_config()
         if cf_config is not None:
             if "t1_vfa_options" in cf_config.keys():
                 t1_opts = cf_config["t1_vfa_options"]
                 if "slice_offset_2D" in t1_opts.keys():
-                    return t1_opts["slice_offset_2D"]
+                    return [t1_opts["slice_offset_2D"]] # put single value in list
+                if "slice_offset_2D_list" in t1_opts.keys():
+                    return t1_opts["slice_offset_2D_list"]
         # not found, return a default value
-        default_value = 0
-        mu.log("MR-BIASCurveFitConfig::get_t1_vfa_2D_slice_offset(): not found in configuration file, "
+        default_value = [0]
+        mu.log("MR-BIASCurveFitConfig::get_t1_vfa_2D_slice_offset_list(): not found in configuration file, "
                "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
         return default_value
 
@@ -1011,6 +1019,34 @@ class MRIBiasCurveFitConfig(MRIBIASConfiguration):
             mu.log("MR-BIASCurveFitConfig::dw_options(): not found in configuration file, "
                 "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
             return default_value
+
+    def get_dw_2D_roi_setting(self):
+        cf_config = super().get_curve_fitting_config()
+        if cf_config is not None:
+            if "dw_options" in cf_config.keys():
+                dw_opts = cf_config["dw_options"]
+                if "use_2D_roi" in dw_opts.keys():
+                    return dw_opts["use_2D_roi"]
+        # not found, return a default value
+        default_value = False
+        mu.log("MR-BIASCurveFitConfig::get_dw_2D_roi_setting(): not found in configuration file, "
+               "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
+        return default_value
+
+    def get_dw_2D_slice_offset_list(self):
+        cf_config = super().get_curve_fitting_config()
+        if cf_config is not None:
+            if "dw_options" in cf_config.keys():
+                dw_opts = cf_config["dw_options"]
+                if "slice_offset_2D" in dw_opts.keys():
+                    return [dw_opts["slice_offset_2D"]] # put single value in list
+                if "slice_offset_2D_list" in dw_opts.keys():
+                    return dw_opts["slice_offset_2D_list"]
+        # not found, return a default value
+        default_value = [0]
+        mu.log("MR-BIASCurveFitConfig::get_dw_2D_slice_offset_list(): not found in configuration file, "
+               "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
+        return default_value
 
 
     def get_save_voxel_data(self):

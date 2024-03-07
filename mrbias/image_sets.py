@@ -186,7 +186,7 @@ class ImageSetAbstract(ABC):
     def get_label_units(self):
         return self.meas_var_units
 
-    def write_roi_pdf_page(self, c, sup_title=None):
+    def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None):
         pdf = mu.PDFSettings()
         c.setFont(pdf.font_name, pdf.small_font_size)  # set to a fixed width font
         if sup_title is None:
@@ -196,7 +196,10 @@ class ImageSetAbstract(ABC):
         base_im = image_list[0]
         im_spacing = base_im.GetSpacing()
         base_arr = sitk.GetArrayFromImage(base_im)
-        mask_im = self.get_roi_image()
+        if mask_override_sitk_im is None:
+            mask_im = self.get_roi_image()
+        else:
+            mask_im = mask_override_sitk_im
         mask_arr = sitk.GetArrayFromImage(mask_im)
 
         roi_vals = np.unique(mask_arr.flatten())[1:]

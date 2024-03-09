@@ -339,6 +339,8 @@ class ReferencePhantomDiffusion1(ReferencePhantomDiffusion):
         adc_reference_file = None
         if mu.isclose(field_strength, 1.5, abs_tol=0.01):
             adc_reference_file = os.path.join(calibre_diff_phantom_dir, "DW-Batch1_1p5T_userCreated_20230727.csv")
+        elif mu.isclose(field_strength, 3.0, abs_tol=0.01):
+            adc_reference_file = os.path.join(calibre_diff_phantom_dir, "DW-Batch1_3T_userCreated_20230727.csv")
         super().__init__(PhantomOptions.DIFFUSION_PHANTOM_CALIBER_BATCH1, field_strength,
                          adc_reference_file,
                          self.get_adc_concentration_roi_map(),
@@ -586,6 +588,8 @@ class ReferencePhantomDiffusionFitInit(ReferencePhantomDiffusion):
         adc_reference_file = None
         if mu.isclose(field_strength, 1.5, abs_tol=0.01):
             adc_reference_file = os.path.join(calibre_diff_phantom_dir, "DW_1p5T_curve_fit_init.csv")
+        elif mu.isclose(field_strength, 3.0, abs_tol=0.01):
+            adc_reference_file = os.path.join(calibre_diff_phantom_dir, "DW_3T_curve_fit_init.csv")
         super().__init__(PhantomOptions.DIFFUSION_PHANTOM_CALIBER_BATCH1, field_strength,
                          adc_reference_file,
                          self.get_adc_concentration_roi_map(),

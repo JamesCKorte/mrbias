@@ -128,6 +128,8 @@ class MRBIAS(object):
             ss = scan_session.SystemSessionPhilipsIngeniaAmbitionX(dicom_directory)
         elif scan_protocol == "diff_philips_ingenia_ambitionX":
             ss = scan_session.DiffusionSessionPhilipsIngeniaAmbitionX(dicom_directory)
+        elif scan_protocol == "diff_siemens_skyra":
+            ss = scan_session.DiffusionSessionSiemensSkyra(dicom_directory)
         else:
             mu.log("MR-BIAS::analyse(): skipping analysis as unknown 'scan_protocol' defined for DICOM sorting",
                    LogLevels.LOG_WARNING)
@@ -190,6 +192,8 @@ class MRBIAS(object):
         roi_template_dir = None
         if roi_template == "siemens_skyra_3p0T":
             roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_skyra_3p0T")
+        elif roi_template == "siemens_diffusion":
+            roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_diffusion")
         elif roi_template == "systemlite_siemens_vida_3p0T":
             roi_template_dir = os.path.join(mu.reference_template_directory(), "systemlite_siemens_vida_3p0T")
         elif roi_template == "systemlite_siemens_vida_3p0T_180degrees":
@@ -441,8 +445,13 @@ class MRBIAS(object):
 
     def write_pdf_aggregated_diffusion_page(self, mdl_list, c, data_dir):
         df_list = []
+        model_names = []
         for mdl in mdl_list:
             df_list.append(mdl.get_summary_dataframe())
+            temp_sup_title = "- CurveFit [%s - %s] <%s>" % (mdl.get_model_name(),
+                                                 mdl.get_preproc_name(),
+                                                 mdl.get_imageset_name())
+            model_names.append(temp_sup_title)
 
         # calculate summary metrics and create summary df
         comb_df = pd.concat(df_list, ignore_index=True)
@@ -467,8 +476,12 @@ class MRBIAS(object):
         # prepare PDF
         pdf = mu.PDFSettings()
         c.setFont(pdf.font_name, pdf.font_size)
-        sup_title = "Repeatability metrics across 4 short-term scan repeats"
-        c.drawString(pdf.left_margin*6, pdf.page_height - pdf.top_margin, sup_title)
+        sup_title = "Repeatability metrics across 4 short-term scan repeats:"
+        c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin, sup_title)
+        off_dx = 7.5
+        for name in model_names:
+            off_dx = off_dx + 14
+            c.drawString(pdf.left_margin*3, pdf.page_height - pdf.top_margin - off_dx, name)
 
         c.setFont(pdf.font_name, pdf.small_font_size)
         
@@ -484,7 +497,7 @@ class MRBIAS(object):
         # table writing
         table_width = len(header_str)
 
-        off_dx = 3.5
+        off_dx = 9.5
         c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - off_dx * pdf.small_line_width,
                          "=" * table_width)
         c.drawString(pdf.left_margin, pdf.page_height - pdf.top_margin - (off_dx + 1) * pdf.small_line_width, header_str)

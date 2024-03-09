@@ -1,0 +1,61 @@
+# ====================================================================================================================
+# Global settings
+# ====================================================================================================================
+global:
+  output_directory: "output" # use forward slashes in filepath
+  overwrite_existing_output: True
+
+# ====================================================================================================================
+# PHANTOM/EXPERIMENT configuration
+# ====================================================================================================================
+phantom_experiment:
+  phantom_manufacturer: "caliber_mri" # options include [caliber_mri]
+  phantom_type: "diffusion_phantom"      # options include [system_phantom, diffusion_phantom]
+  phantom_serial_number: "128-0155"   # for CalibreMRI phantoms SN has format XXX-XXXX
+  field_strength_tesla: 3.0           # options include [1.5, 3.0]
+  temperature_celsius: 0.0         # will match to closest experimental reference data
+
+
+# ====================================================================================================================
+# DICOM sorting options
+# ====================================================================================================================
+dicom_sorting:
+  scan_protocol : "diff_siemens_skyra"   # options include [siemens_skyra_3p0T, philips_marlin_1p5T, philips_ingenia_ambitionX, diff_philips_ingenia_ambitionX]
+  scan_protocol_options: ["siemens_skyra_3p0T", "philips_marlin_1p5T", "philips_ingenia_1p5T", "diff_philips_ingenia_ambitionX", "diff_siemens_skyra"]
+  save_sorted_images: False # future feature (not implemented)
+
+
+# ====================================================================================================================
+# ROI detection options
+# ====================================================================================================================
+roi_detection:
+  template_name: "siemens_diffusion"   # options include [siemens_skyra_3p0T, philips_ingenia_1p5T]
+  registration_method: "correl-GD"
+  save_mask_images: False # future feature (not implemented)
+
+
+# ====================================================================================================================
+# Curve fitting options
+# ====================================================================================================================
+curve_fitting:
+  # -----------------------------------------------------------------------------------------------------------------
+  # PRE-PROCESSING
+  # -----------------------------------------------------------------------------------------------------------------
+  averaging: "none"              # options include [none, voxels_in_ROI]
+  normalisation: "none"              # options include [none, voxel_max, roi_max]
+  exclude: "none"                      # options include [none, clipped]
+  percent_clipped_threshold: 100           # [0, 100] for parital clipping, the number of unclipped/clean voxels required across all measurements in the ROI
+  # -----------------------------------------------------------------------------------------------------------------
+  # MODEL OPTIONS
+  # -----------------------------------------------------------------------------------------------------------------
+  dw_options: #t1_vfa_options
+    fitting_models: ["2_param"]
+
+  # -----------------------------------------------------------------------------------------------------------------
+  # OUTPUT OPTIONS
+  # -----------------------------------------------------------------------------------------------------------------
+  save_voxel_data: True
+  save_parameter_maps: False # future feature (not implemented)
+
+
+

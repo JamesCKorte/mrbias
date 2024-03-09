@@ -35,6 +35,7 @@ import matplotlib.pyplot as plt
 import pandas as pd
 import scipy.optimize as spopt
 import lmfit
+from scipy.stats import linregress
 import seaborn as sns
 
 # for pdf output
@@ -80,10 +81,14 @@ EXCL_SETTING_STR_ENUM_MAP = {"clipped": ExclusionOptions.CLIPPED_VALUES}
 class OptiOptions(IntEnum):
     SCIPY = 1
     LMFIT = 2
+    LINREG = 3
 OPTI_OPT_STR_MAP = {OptiOptions.SCIPY: "scipy",
-                    OptiOptions.LMFIT: "lmfit"}
+                    OptiOptions.LMFIT: "lmfit",
+                    OptiOptions.LINREG: "linreg"}
 OPTI_SETTING_STR_ENUM_MAP = {"scipy": OptiOptions.SCIPY,
-                             "lmfit": OptiOptions.LMFIT}
+                             "lmfit": OptiOptions.LMFIT,
+                             "linreg": OptiOptions.LINREG
+                             }
 
 GOODNESS_OF_FIT_PARAMS = ['chisqr', 'redchi', 'aic', 'bic'];
 GOODNESS_OF_FIT_DESC_DICT = {'chisqr': "Chi-square statistic",
@@ -705,7 +710,7 @@ class CurveFitAbstract(ABC):
     specific MR sequence curve fit class.
     """
     def __init__(self, imageset, reference_phantom, initialisation_phantom, preprocessing_options,
-                 exclusion_list=None, exclusion_label=None, optimisation_lib=OptiOptions.LMFIT,
+                 exclusion_list=None, exclusion_label=None, optimisation_lib=OptiOptions.LINREG,
                  use_2D_roi=False, centre_offset_2D=0):
         """
 
@@ -959,8 +964,13 @@ class CurveFitAbstract(ABC):
                                 for p_name in ord_param_names:
                                     voxel_fit_param_array_dict[p_name].append(np.nan)
                                     voxel_fit_param_err_array_dict[p_name].append(np.nan)
-
-
+                        elif self.opti_lib == OptiOptions.LINREG:
+                            voxel_series = np.log(voxel_series)
+                            popt_res = linregress(measurement_series, voxel_series)
+                            popt = np.array(- popt_res.slope)
+                            perr = popt_res.stderr
+                            voxel_fit_param_array_dict[ord_param_names[0]].append(popt)
+                            voxel_fit_param_err_array_dict[ord_param_names[0]].append(perr)
                         else:
                             mu.log("CurveFit(%s)::model_fit_roi_data(): please select a valid optimisation library choice" %
                                    self.get_model_name(), LogLevels.LOG_WARNING)
@@ -1774,7 +1784,6 @@ class T2SECurveFitAbstract3Param(CurveFitAbstract):
 class DWCurveFitAbstract2Param(CurveFitAbstract):
     def __init__(self, imageset, reference_phantom, initialisation_phantom, preprocessing_options):
         self.eqn_param_map = OrderedDict()
-        self.eqn_param_map["Sb_0"] = ("Signal at b_0", "max(Sb_x)", "0.0", "inf")
         self.eqn_param_map["D"] = ("D", "D", "0.0", "inf")
         self.eqn_param_map["Bx"] = ("b value", "as measured", "-", "-")
         super().__init__(imageset, reference_phantom, initialisation_phantom, preprocessing_options)
@@ -1788,15 +1797,15 @@ class DWCurveFitAbstract2Param(CurveFitAbstract):
     def get_symbol_of_interest(self):
         return 'D'
     def get_ordered_parameter_symbols(self):
-        return ['Sb_0', 'D']
+        return ['D']
     def get_meas_parameter_symbol(self):
         return 'Bx'
 
-    def fit_function(self, Bx, Sb_0, D):
-        # Sb_0 = flip value of pixel in DWI image with b=0
+    def fit_function(self, Bx, D):
+        # Sb_0 = value of pixel in DWI image with b=0
         # Bx = B-value
         # D = App. diffusion coeff.
-        return Sb_0 * np.exp(-Bx*D)
+        return np.exp(-Bx*D)
 
     def get_initial_parameters(self, roi_dx, voxel_dx):
         cf_roi = self.cf_rois[roi_dx]
@@ -1819,7 +1828,7 @@ class DWCurveFitAbstract2Param(CurveFitAbstract):
             return 1000.0
             
     def get_model_eqn_strs(self):
-        eqn_strs = ["S(Bx) = Sb_0 * exp(-Bx * D)"]
+        eqn_strs = ["log( S(Bx)/S(0) = -Bx * D)"]
         return eqn_strs
 
 

@@ -69,7 +69,7 @@ def main():
     dcm_dir_a = os.path.join(mu.reference_data_directory(), "mrbias_testset_A")
     dcm_dir_b = os.path.join(mu.reference_data_directory(), "mrbias_testset_B")
     test_dcm_dir_list = [dcm_dir_a, dcm_dir_b]
-    test_ss_config_list = ["SiemensSkyra", "DiffSiemensSkyra"]
+    test_ss_config_list = ["SiemensSkyra", "SiemensSkyra"]
 
     # Philips DW test
     #test_ss_config_list = []

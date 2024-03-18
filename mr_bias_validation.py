@@ -29,7 +29,7 @@ from mrbias import MRBIAS
 # specify the configuration file to control the analysis
 configuration_filename_a = os.path.join("config", "validation_diffusion_config.yaml")
 
-# specific the dicom directories to analyse
+#  dicom directories to analyse
 dicom_dirs = []
 for i in range(1,13):
     dir = "data/month"+ str(i) + "_trace"
@@ -39,4 +39,3 @@ for i in range(1,13):
 for dir in dicom_dirs:
    mrb = MRBIAS(configuration_filename_a, write_to_screen=True)
    mrb.analyse(dir)
-   assert False

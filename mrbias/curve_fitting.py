@@ -711,13 +711,8 @@ class CurveFitAbstract(ABC):
     specific MR sequence curve fit class.
     """
     def __init__(self, imageset, reference_phantom, initialisation_phantom, preprocessing_options,
-<<<<<<< HEAD
                  exclusion_list=None, exclusion_label=None, optimisation_lib=OptiOptions.LINREG,
-                 use_2D_roi=False, centre_offset_2D=0):
-=======
-                 exclusion_list=None, exclusion_label=None, optimisation_lib=OptiOptions.LMFIT,
                  use_2D_roi=False, centre_offset_2D_list=[0]):
->>>>>>> 505d13ef050755183e50ce9cfbeb7339ef664670
         """
 
         Args:

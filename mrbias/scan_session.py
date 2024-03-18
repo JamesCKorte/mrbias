@@ -97,8 +97,6 @@ def main():
             scan_session = SystemSessionPhilipsMarlin(dcm_dir)
         if ss_type == "SiemensSkyra":
             scan_session = SystemSessionSiemensSkyra(dcm_dir)
-        if ss_type == "DiffSiemensSkyra":
-            scan_session = DiffusionSessionSiemensSkyra(dcm_dir)
         elif ss_type == "PhilipsIngeniaAmbitionX":
             scan_session = SystemSessionPhilipsIngeniaAmbitionX(dcm_dir)
         elif ss_type == "DiffPhilipsIngeniaAmbitionX":
@@ -329,8 +327,7 @@ class ScanSessionAbstract(ABC):
         # - loop over the image in acquisition order and link with the last geom image taken
         df = self.meta_data_df.drop_duplicates(subset=["SeriesInstanceUID"])
         geom_options = pd.unique(df["GeomSet"]).tolist()
-        if '' in geom_options:
-            geom_options.remove('')
+        geom_options.remove('')
         if len(geom_options):
             current_geom = geom_options[0]
             for idx, r in df.iterrows():
@@ -437,51 +434,32 @@ class ScanSessionAbstract(ABC):
                    "loading geometric images from disk...", LogLevels.LOG_INFO)
             df = self.meta_data_df.drop_duplicates(subset=["GeomSet"])
             geom_options = pd.unique(df["GeomSet"]).tolist()
-            if '' in geom_options:
-                geom_options.remove('')
+            geom_options.remove('')
             geomset_series_uid_list = df[df["GeomSet"].isin(geom_options)].SeriesInstanceUID
             geom_image_list = []
             for series_instance_uid, geoset_label in zip(geomset_series_uid_list, geom_options):
                 image_set_df = self.meta_data_df[self.meta_data_df.SeriesInstanceUID == series_instance_uid]
-
-                # check if it is a geometric image (not diffusion, T1 or T2, etc...)
-                image_set_cat = pd.unique(image_set_df["Category"]).tolist()[0]
-                if (image_set_cat == IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.DW][0]):
-                    dw_imagesets = self.get_dw_image_sets(ignore_geometric_images=True)
-                    for dw_imset in dw_imagesets:
-                        #does this set match the one we want to use as geometric image
-                        if series_instance_uid == dw_imset.series_instance_UIDs[0]:
-                            #create an ImageGeometric from diffusion image
-                            geom_image_list.append(ImageGeometric(geoset_label,
-                                                        dw_imset.image_list[0], #use b = 0
-                                                        series_instance_uid,
-                                                        bits_allocated = None,
-                                                        bits_stored = None,
-                                                        rescale_slope = None,
-                                                        rescale_intercept = None))
-                    self.dw_imageset_list = None
-                    
-                else:
-                    # get the datatype details
-                    bits_allocated = image_set_df.drop_duplicates(subset=["BitsAllocated"]).BitsAllocated.iloc[0]
-                    bits_stored = image_set_df.drop_duplicates(subset=["BitsStored"]).BitsStored.iloc[0]
-                    rescale_slope = image_set_df.drop_duplicates(subset=["RescaleSlope"]).RescaleSlope.iloc[0]
-                    rescale_intercept = image_set_df.drop_duplicates(subset=["RescaleIntercept"]).RescaleIntercept.iloc[0]
-                    # get all the slices
-                    files_sorting = []
-                    for index, row in image_set_df.iterrows():
-                        files_sorting.append((row["ImageFilePath"], row["SliceLocation"]))
-                    # sort the slices by slice location before reading by sitk
-                    files_sorting.sort(key=lambda x: x[1])
-                    files_sorted = [x[0] for x in files_sorting]
-                    im = self._load_image_from_filelist(files_sorted, series_instance_uid,
-                                                        rescale_slope, rescale_intercept,
-                                                        row.SeriesDescription)
-                    geom_image_list.append(ImageGeometric(geoset_label,
-                                                        im,
-                                                        series_instance_uid,
-                                                        bits_allocated, bits_stored,
-                                                        rescale_slope, rescale_intercept))
+                set_series_uids = image_set_df.drop_duplicates(subset=["SeriesInstanceUID"]).SeriesInstanceUID
+                # get the datatype details
+                bits_allocated = image_set_df.drop_duplicates(subset=["BitsAllocated"]).BitsAllocated.iloc[0]
+                bits_stored = image_set_df.drop_duplicates(subset=["BitsStored"]).BitsStored.iloc[0]
+                rescale_slope = image_set_df.drop_duplicates(subset=["RescaleSlope"]).RescaleSlope.iloc[0]
+                rescale_intercept = image_set_df.drop_duplicates(subset=["RescaleIntercept"]).RescaleIntercept.iloc[0]
+                # get all the slices
+                files_sorting = []
+                for index, row in image_set_df.iterrows():
+                    files_sorting.append((row["ImageFilePath"], row["SliceLocation"]))
+                # sort the slices by slice location before reading by sitk
+                files_sorting.sort(key=lambda x: x[1])
+                files_sorted = [x[0] for x in files_sorting]
+                im = self._load_image_from_filelist(files_sorted, series_instance_uid,
+                                                     rescale_slope, rescale_intercept,
+                                                     row.SeriesDescription)
+                geom_image_list.append(ImageGeometric(geoset_label,
+                                                      im,
+                                                      series_instance_uid,
+                                                      bits_allocated, bits_stored,
+                                                      rescale_slope, rescale_intercept))
             self.geom_image_list = geom_image_list
         return self.geom_image_list
 
@@ -544,11 +522,11 @@ class ScanSessionAbstract(ABC):
             self.t2star_imageset_list = self._get_echo_image_sets(ImageCatetory.T2STAR_ME)
         return self.t2star_imageset_list
 
-    def get_dw_image_sets(self, ignore_geometric_images=False):
+    def get_dw_image_sets(self):
         if self.dw_imageset_list is None:
             mu.log("ScanSession::get_dw_image_sets(): "
                    "loading DW image sets from disk...", LogLevels.LOG_INFO)
-            self.dw_imageset_list = self._get_dw_image_sets(ImageCatetory.DW, ignore_geometric_images)
+            self.dw_imageset_list = self._get_dw_image_sets(ImageCatetory.DW)
         return self.dw_imageset_list
 
     def _get_image_sets(self, imageset_data_dict, category, n_expected_dcm_tags):
@@ -709,13 +687,12 @@ class ScanSessionAbstract(ABC):
                 assert False, "ScanSessionAbstract::_get_echo_image_sets() is only designed to be called by T1-VFA and T1-VIR models, not (%s) imageset category" % category
         return imageset_list
 
-    def _get_dw_image_sets(self, category, ignore_geometric_images=False):
+    def _get_dw_image_sets(self, category):
         imageset_list = []
         # acquisition timestamp
         study_date, study_time = self.get_study_date_time()
         # geometric images for linking
-        if not ignore_geometric_images:
-            geom_images = self.get_geometric_images()
+        geom_images = self.get_geometric_images()
         # get image sets from the dataframe
         category_name = IMAGE_CAT_STR_DICT[category]
         cat_df = self.meta_data_df[self.meta_data_df.Category == category_name]
@@ -768,10 +745,9 @@ class ScanSessionAbstract(ABC):
             ref_geom_image = None
             image_set_df = self.meta_data_df.drop_duplicates(subset=["ImageSet"])
             ref_geom_label = image_set_df[image_set_df.ImageSet == set_name].ReferenceGeometryImage.iloc[0]
-            if not ignore_geometric_images:
-                for g_im in geom_images:
-                    if g_im.get_label() == ref_geom_label:
-                        ref_geom_image = g_im
+            for g_im in geom_images:
+                if g_im.get_label() == ref_geom_label:
+                    ref_geom_image = g_im
             # create the appropriate ImageSet based on category
             if category == ImageCatetory.DW:
                 imageset_list.append(ImageSetDW(set_name,
@@ -1005,19 +981,7 @@ class DiffusionSessionTemplate(DiffusionSessionAbstract):
     def get_dw_series_UIDs(self):
         return None
 
-class DiffusionSessionSiemensSkyra(DiffusionSessionAbstract):
-    def __init__(self, dicom_dir):
-        super().__init__(dicom_dir, force_geometry_imageset=ImageCatetory.DW)
 
-    def get_geometric_series_UIDs(self):
-        return None
-
-    def get_dw_series_UIDs(self):
-        df_2D = super().get_2D_series()
-        df_2D_thick = df_2D[df_2D.SliceThickness == 4]
-        df_2D_psn = df_2D_thick[df_2D_thick["SequenceName"].str.match(r"^\*ep_b\d{1,4}t$")]
-        df_2D_psn = df_2D_thick.sort_values(["DiffusionBValue"])
-        return df_2D_psn.index
 
 class DiffusionSessionPhilipsIngeniaAmbitionX(DiffusionSessionAbstract):
     def __init__(self, dicom_dir):
@@ -1284,7 +1248,6 @@ class DICOMSearch(object):
                LogLevels.LOG_INFO)
         # create a pandas dataframe from selected DICOM metadata
         special_tag = dcm.tag.Tag(0x2001, 0x1020)
-        bval_tag = dcm.tag.Tag(0x0019, 0x100C)
         dicom_data = []
         column_meta_names = ['ImageFilePath', 'ImageType', 'PatientName', 'PatientID', 'PatientBirthDate', 'PatientSex',
                              'StudyDate', 'StudyTime', 'StudyDescription', 'StudyInstanceUID',
@@ -1299,8 +1262,7 @@ class DICOMSearch(object):
                              'EchoTime', 'EchoNumbers', 'RepetitionTime', 'PixelBandwidth',
                              'NumberOfPhaseEncodingSteps', 'PercentSampling', 'SliceLocation',
                              "SequenceName", "MagneticFieldStrength", "InversionTime", "DiffusionBValue"]
-        alternatives_dict = {"SequenceName" : [special_tag, "PulseSequenceName"],
-                             "DiffusionBValue" : [bval_tag]}
+        alternatives_dict = {"SequenceName" : [special_tag, "PulseSequenceName"] }
                              # "ScanningSequence": ["EchoPulseSequence"], #[EchoPulseSequence"],
                              # "MRAcquisitionType": ["VolumetricProperties"],
                              # "AcquisitionDate": ["InstanceCreationDate", "ContentDate"],
@@ -1314,8 +1276,6 @@ class DICOMSearch(object):
                 available_tags = ds.dir()
                 if special_tag in ds.keys():
                     available_tags.append(special_tag)
-                if bval_tag in ds.keys():
-                    available_tags.append(bval_tag)
                 for tag_name in column_meta_names[1:]: # skip the "ImageFilePath"
                     if tag_name in available_tags:
                         data_row.append(ds[tag_name].value)

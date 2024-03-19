@@ -50,6 +50,7 @@ import mrbias.scan_session as ss
 #   The script will output a comma seperated data file with the dicom metadata
 #################################################################################
 DICOM_DIRECTORY = os.path.join(base_dir, "data", "mrbias_testset_B")
+DICOM_DIRECTORY = r"I:\JK\MR-BIAS\Data_From_BenPetra\M231213A_VIRtest"
 OUTPUT_CSV_FILENAME = "dicom_metadata.csv"
 #################################################################################
 
@@ -63,7 +64,7 @@ scan_session = ss.DICOMSearch(target_dir=DICOM_DIRECTORY,
 
 # sort the data to show a summary to help define sorting rules
 df = pd.read_csv(OUTPUT_CSV_FILENAME)
-df_sum = df.drop_duplicates(subset=['SeriesInstanceUID'],
+df_sum = df.drop_duplicates(subset=['SeriesInstanceUID', 'RescaleSlope', 'RescaleIntercept', 'ScaleSlope', 'ScaleIntercept'],
                             keep='last').reset_index(drop = True)
 dicom_summary_tag_list = ['SeriesDescription', 'ProtocolName', 'SequenceName', 'ScanningSequence', 'ScanOptions', 'SequenceVariant', 'ImageType',
                           'MRAcquisitionType', 'SliceThickness', 'FlipAngle', 'EchoTime', 'RepetitionTime', 'InversionTime']

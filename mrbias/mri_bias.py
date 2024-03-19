@@ -126,6 +126,8 @@ class MRBIAS(object):
             ss = scan_session.SystemSessionSiemensSkyraErin(dicom_directory)
         elif scan_protocol == "philips_ingenia_ambitionX":
             ss = scan_session.SystemSessionPhilipsIngeniaAmbitionX(dicom_directory)
+        elif scan_protocol == "philips_marlin_1p5T_avl":
+            ss = scan_session.SystemSessionAVLPhilipsMarlinNoGeo(dicom_directory)
         elif scan_protocol == "diff_philips_ingenia_ambitionX":
             ss = scan_session.DiffusionSessionPhilipsIngeniaAmbitionX(dicom_directory)
         else:
@@ -196,6 +198,8 @@ class MRBIAS(object):
             roi_template_dir = os.path.join(mu.reference_template_directory(), "systemlite_siemens_vida_3p0T_180degrees")
         elif roi_template == "philips_ingenia_1p5T":
             roi_template_dir = os.path.join(mu.reference_template_directory(), "philips_ingenia_1p5T")
+        elif roi_template == "eurospin_philips_1p5T_allvials":
+            roi_template_dir = os.path.join(mu.reference_template_directory(), "eurospin_philips_1p5T_allvials")
         # ... add others
         if roi_template is None:
             mu.log("MR-BIAS::analyse(): skipping analysis as unknown 'roi_template' defined for ROI detection",
@@ -244,8 +248,9 @@ class MRBIAS(object):
         phantom_sn = phan_config.get_phantom_serial_number()
         ph_model_num, ph_item_num = phantom_sn.split("-")
         if not ((phantom_maker == "caliber_mri") and (phantom_type =="system_phantom") and (ph_model_num == "130")) and \
-            not ((phantom_maker == "caliber_mri") and (phantom_type =="diffusion_phantom") and (ph_model_num == "128")):
-            mu.log("MR-BIAS::analyse(): only supports phantom [caliber_mri:system_phantom(130) and caliber_mri:diffusion_phantom(128)] (not [%s:%s()]) "
+            not ((phantom_maker == "caliber_mri") and (phantom_type =="diffusion_phantom") and (ph_model_num == "128")) and \
+                not ((phantom_maker == "eurospin") and (phantom_type =="relaxometry")):
+            mu.log("MR-BIAS::analyse(): only supports phantom [caliber_mri:system_phantom(130), caliber_mri:diffusion_phantom(128) and eurospin:testobject5] (not [%s:%s(%s)]) "
                    "skipping analysis... " % (phantom_maker, phan_config, ph_model_num), LogLevels.LOG_ERROR)
             return None
         
@@ -254,7 +259,10 @@ class MRBIAS(object):
         temperature_celsius = phan_config.get_temperature_celsius()
         if phantom_type == "system_phantom":
             init_phan = phantom.ReferencePhantomCalibreSystemFitInit(field_strength=field_strength,  # Tesla
-                                                                 temperature=temperature_celsius)  # Celsius
+                                                                     temperature=temperature_celsius)  # Celsius
+        if phantom_type == "relaxometry":
+            init_phan = phantom.ReferencePhantomEurospinRelaxometryFitInit(field_strength=field_strength,  # Tesla
+                                                                           temperature=temperature_celsius)  # Celsius
         if phantom_type == "diffusion_phantom":
             init_phan = phantom.ReferencePhantomDiffusionFitInit(field_strength=field_strength,  # Tesla
                                                                  temperature=temperature_celsius)  # Celsius
@@ -262,29 +270,33 @@ class MRBIAS(object):
         mu.log(type(init_phan), LogLevels.LOG_ERROR)
         mu.log(init_phan, LogLevels.LOG_ERROR)
 
-        # select the reference phantom based on phantom serial number
-        if ph_model_num == "130":
-            ph_item_num = int(ph_item_num)
-            ref_phan = None
-            if ph_item_num < 42:
-                ref_phan = phantom.ReferencePhantomCalibreSystem1(field_strength=field_strength,  # Tesla
-                                                                temperature=temperature_celsius,
-                                                                serial_number=phantom_sn)  # Celsius
-            elif ph_item_num < 133:
-                ref_phan = phantom.ReferencePhantomCalibreSystem2(field_strength=field_strength,  # Tesla
-                                                                temperature=temperature_celsius,
-                                                                serial_number=phantom_sn)  # Celsius
-            else: # ph_item_num >= 133
-                ref_phan = phantom.ReferencePhantomCalibreSystem2p5(field_strength=field_strength,  # Tesla
+        if phantom_maker == "caliber_mri":
+            # select the reference system phantom based on phantom serial number
+            if ph_model_num == "130":
+                ph_item_num = int(ph_item_num)
+                ref_phan = None
+                if ph_item_num < 42:
+                    ref_phan = phantom.ReferencePhantomCalibreSystem1(field_strength=field_strength,  # Tesla
                                                                     temperature=temperature_celsius,
                                                                     serial_number=phantom_sn)  # Celsius
-        
-        elif ph_model_num == "128":
-            ph_item_num = int(ph_item_num)
-            ref_phan = None
-            ref_phan = phantom.ReferencePhantomDiffusion1(field_strength=field_strength,  # Tesla
-                                                                temperature=temperature_celsius,
-                                                                serial_number=phantom_sn)  # Celsius
+                elif ph_item_num < 133:
+                    ref_phan = phantom.ReferencePhantomCalibreSystem2(field_strength=field_strength,  # Tesla
+                                                                    temperature=temperature_celsius,
+                                                                    serial_number=phantom_sn)  # Celsius
+                else: # ph_item_num >= 133
+                    ref_phan = phantom.ReferencePhantomCalibreSystem2p5(field_strength=field_strength,  # Tesla
+                                                                        temperature=temperature_celsius,
+                                                                        serial_number=phantom_sn)  # Celsius
+            # select the reference diffusion phantom
+            elif ph_model_num == "128":
+                ref_phan = phantom.ReferencePhantomDiffusion1(field_strength=field_strength,  # Tesla
+                                                              temperature=temperature_celsius,
+                                                              serial_number=phantom_sn)  # Celsius
+        elif phantom_maker == "eurospin":
+            if phantom_type == "relaxometry":
+                ref_phan = phantom.ReferencePhantomEurospinRelaxometry1(field_strength=field_strength,  # Tesla
+                                                                        temperature=temperature_celsius,
+                                                                        serial_number=phantom_sn)  # Celsius
                 
 
         # --------------------------------------------------------------------
@@ -632,7 +644,7 @@ class MRBIAS(object):
 
     @staticmethod
     def get_directory_name_from_dcm_metadata(dicom_directory):
-        dcm_search = scan_session.DICOMSearch(dicom_directory, read_single_file=True)
+        dcm_search = mu.DICOMSearch(dicom_directory, read_single_file=True)
         dcm_df = dcm_search.get_df()
         meta_data = OrderedDict()
         for attrib, missing_val in [("InstitutionName", "Inst"),

@@ -73,7 +73,8 @@ class PhantomOptions(IntEnum):
     SYSTEM_PHANTOM_CALIBER_BATCH1 = 1
     SYSTEM_PHANTOM_CALIBER_BATCH2 = 2
     SYSTEM_PHANTOM_CALIBER_BATCH2p5 = 3
-    DIFFUSION_PHANTOM_CALIBER_BATCH1 = 4
+    RELAXOMETRY_PHANTOM_EUROSPIN_BATCH1 = 4
+    DIFFUSION_PHANTOM_CALIBER_BATCH1 = 5
 
 class ReferenceROI(object):
     def __init__(self, label, value, units, value_uncertainty=None):
@@ -576,6 +577,7 @@ class ReferencePhantomCalibreSystemFitInit(ReferencePhantomCaibreSystem):
     @staticmethod
     def get_t2_concentration_roi_map():
         return ReferencePhantomCalibreSystem1.get_t2_concentration_roi_map()
+
 
 class ReferencePhantomDiffusionFitInit(ReferencePhantomDiffusion):
     def __init__(self, field_strength, temperature=None):

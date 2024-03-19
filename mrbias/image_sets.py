@@ -42,7 +42,7 @@ if str(root) not in sys.path:
 # import required mrbias modules
 from mrbias import misc_utils as mu
 from mrbias.misc_utils import LogLevels
-from mrbias.misc_utils import ROI_IDX_LABEL_MAP, T1_ROI_LABEL_IDX_MAP, T2_ROI_LABEL_IDX_MAP
+from mrbias.misc_utils import ROI_IDX_LABEL_MAP, T1_ROI_LABEL_IDX_MAP, T2_ROI_LABEL_IDX_MAP, DW_ROI_LABEL_IDX_MAP
 
 
 def check_image_same_grid(im_a, im_b):
@@ -68,7 +68,9 @@ class ImageSetAbstract(ABC):
                  repetition_time_list,
                  geometry_image=None,
                  series_instance_UIDs=None,
-                 bits_allocated=None, bits_stored=None, rescale_slope=None, rescale_intercept=None,
+                 bits_allocated=None, bits_stored=None,
+                 rescale_slope_list=None, rescale_intercept_list=None,
+                 scale_slope_list=None, scale_intercept_list=None,
                  scanner_make=None, scanner_model=None, scanner_serial_number=None, scanner_field_strength=None,
                  date_acquired=None, time_acquired=None):
         self.label = set_label
@@ -99,6 +101,13 @@ class ImageSetAbstract(ABC):
         # Time/date
         self.date = date_acquired
         self.time = time_acquired
+        # Image Scaling Details
+        self.rescale_slope_list     = rescale_slope_list
+        self.rescale_intercept_list = rescale_intercept_list
+        self.scale_slope_list       = scale_slope_list
+        self.scale_intercept_list   = scale_intercept_list
+        self.bits_allocated = bits_allocated
+        self.bits_stored    = bits_stored
 
     def __str__(self):
         r_str = "ImageSetAbstract [%s : %s]" % (self.label, type(self))
@@ -148,7 +157,14 @@ class ImageSetAbstract(ABC):
                                          voxel_data_xyz=roi_mask_xyz,
                                          measurement_variable_vector=self.meas_var_list,
                                          measurement_variable_name=self.meas_var_name,
-                                         measurement_variable_units=self.meas_var_units)
+                                         measurement_variable_units=self.meas_var_units,
+                                         rescale_slope_list=self.rescale_slope_list,
+                                         rescale_intercept_list=self.rescale_intercept_list,
+                                         scale_slope_list=self.scale_slope_list,
+                                         scale_intercept_list=self.scale_intercept_list,
+                                         bits_allocated=self.bits_allocated,
+                                         bits_stored=self.bits_stored,
+                                         scanner_make=self.scanner_make)
                 roi_dict[mask_val] = im_set_roi
             else:
                 mu.log("ImageSetAbstract::get_ROI_data() - skipping unknown roi_idx (%s)" % mask_val,
@@ -158,6 +174,10 @@ class ImageSetAbstract(ABC):
 
     @abstractmethod
     def update_ROI_mask(self):
+        return None
+
+    @abstractmethod
+    def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None):
         return None
 
     def get_set_label(self):
@@ -186,7 +206,9 @@ class ImageSetAbstract(ABC):
     def get_label_units(self):
         return self.meas_var_units
 
-    def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None):
+    def _write_roi_pdf_page(self, c, sup_title=None,
+                            mask_override_sitk_im=None,
+                            all_roi_values=None):
         pdf = mu.PDFSettings()
         c.setFont(pdf.font_name, pdf.small_font_size)  # set to a fixed width font
         if sup_title is None:
@@ -241,11 +263,11 @@ class ImageSetAbstract(ABC):
         im_slice = base_arr[c_x, :, :]
         ax_glob.imshow(im_slice, cmap='gray')
         i = ax_glob.imshow(np.ma.masked_where(roi_slice == 0, roi_slice),
-                           cmap='nipy_spectral', vmin=np.min(roi_vals) - 1, vmax=np.max(roi_vals) + 1,
+                           cmap='nipy_spectral', vmin=np.min(all_roi_values) - 1, vmax=np.max(all_roi_values) + 1,
                            interpolation='none',
                            alpha=0.7)
         ax_glob.axis('off')
-        ticks = list(range(np.min(roi_vals), np.max(roi_vals) + np.uint16(1)))
+        ticks = list(range(np.min(all_roi_values), np.max(all_roi_values) + np.uint16(1)))
         ticklabels = [ROI_IDX_LABEL_MAP[x] for x in ticks]
         cb = plt.colorbar(mappable=i, ax=ax_glob,
                           ticks=ticks)
@@ -293,14 +315,14 @@ class ImageSetAbstract(ABC):
                               cmap='gray')
                     ax.imshow(np.ma.masked_where(roi_slice == 0, roi_slice),
                               extent=zoom_extent,
-                              cmap='nipy_spectral', vmin=np.min(roi_vals) - 1, vmax=np.max(roi_vals) + 1,
+                              cmap='nipy_spectral', vmin=np.min(all_roi_values) - 1, vmax=np.max(all_roi_values) + 1,
                               interpolation='none',
                               alpha=0.7)
                     ax.set_xticks([])
                     ax.set_xticklabels([])
                     ax.set_yticks([])
                     ax.set_yticklabels([])
-                    ax.set_title("ROI_%d\n(n=%d)" % (roi_dx + 1, np.count_nonzero(mask_arr == roi_vals[roi_dx])))
+                    ax.set_title("%s\n(n=%d)" % (ROI_IDX_LABEL_MAP[roi_vals[roi_dx]], np.count_nonzero(mask_arr == roi_vals[roi_dx])))
                     if ax_dx == 0:
                         ax.set_ylabel("axial")
 
@@ -315,7 +337,7 @@ class ImageSetAbstract(ABC):
                             roi_slice = mask_arr[extent_x_a:extent_x_b, c_y, extent_z_a:extent_z_b]
                             sag_ax.imshow(np.ma.masked_where(roi_slice == 0, roi_slice),
                                           extent=zoom_extent,
-                                          cmap='nipy_spectral', vmin=np.min(roi_vals) - 1, vmax=np.max(roi_vals) + 1,
+                                          cmap='nipy_spectral', vmin=np.min(all_roi_values) - 1, vmax=np.max(all_roi_values) + 1,
                                           interpolation='none',
                                           alpha=0.7)
                             if ax_dx == 0:
@@ -352,7 +374,11 @@ class ImageSetAbstract(ABC):
 class ImageSetROI(object):
     def __init__(self, label,
                  voxel_data_array, voxel_data_xyz, measurement_variable_vector,
-                 measurement_variable_name, measurement_variable_units
+                 measurement_variable_name, measurement_variable_units,
+                 rescale_slope_list=None, rescale_intercept_list=None,
+                 scale_slope_list=None, scale_intercept_list=None,
+                 bits_allocated=None, bits_stored=None,
+                 scanner_make=None
                  ):
         mu.log("\t\t\tImageSetROI::__init__(): creating %s with %d voxels %s (each with %d measurements)" %
                (label, voxel_data_array.shape[0], type(voxel_data_array.flatten()[0]), voxel_data_array.shape[1]),
@@ -363,6 +389,14 @@ class ImageSetROI(object):
         self.meas_var_vector = measurement_variable_vector
         self.meas_var_name = measurement_variable_name
         self.meas_var_units = measurement_variable_units
+        # data acquisition and scaling information
+        self.rescale_slope_list = rescale_slope_list
+        self.rescale_intercept_list = rescale_intercept_list
+        self.scale_slope_list = scale_slope_list
+        self.scale_intercept_list = scale_intercept_list
+        self.bits_allocated = bits_allocated
+        self.bits_stored = bits_stored
+        self.scanner_make = scanner_make
 
 
 class ImageBasic(object):
@@ -372,7 +406,9 @@ class ImageBasic(object):
                  bits_allocated=None,
                  bits_stored=None,
                  rescale_slope=None,
-                 rescale_intercept=None):
+                 rescale_intercept=None,
+                 scale_slope=None,
+                 scale_intercept=None):
         self.label = label
         self.im = sitk_im
         self.series_instance_UID = series_instance_UID
@@ -381,6 +417,8 @@ class ImageBasic(object):
         self.bits_stored = bits_stored
         self.rescale_slope = rescale_slope
         self.rescale_intercept = rescale_intercept
+        self.scale_slope = scale_slope
+        self.scale_intercept = scale_intercept
     def get_image(self):
         return self.im
     def get_label(self):
@@ -397,9 +435,12 @@ class ImageGeometric(ImageBasic):
                  bits_allocated=None,
                  bits_stored=None,
                  rescale_slope=None,
-                 rescale_intercept=None):
+                 rescale_intercept=None,
+                 scale_slope=None,
+                 scale_intercept=None):
         super().__init__(label, sitk_im, series_instance_UID,
-                         bits_allocated, bits_stored, rescale_slope, rescale_intercept)
+                         bits_allocated, bits_stored,
+                         rescale_slope, rescale_intercept, scale_slope, scale_intercept)
         self.roi_mask_image_PD = None
         self.roi_mask_image_T1 = None
         self.roi_mask_image_T2 = None
@@ -476,8 +517,10 @@ class ImageSetT1VIR(ImageSetAbstract):
                  series_instance_UIDs=None,
                  bits_allocated=None,
                  bits_stored=None,
-                 rescale_slope=None,
-                 rescale_intercept=None,
+                 rescale_slope_list=None,
+                 rescale_intercept_list=None,
+                 scale_slope_list=None,
+                 scale_intercept_list=None,
                  scanner_make=None, scanner_model=None, scanner_serial_number=None, scanner_field_strength=None,
                  study_date=None, study_time=None):
         super().__init__(set_label=set_label,
@@ -489,7 +532,8 @@ class ImageSetT1VIR(ImageSetAbstract):
                          geometry_image=geometry_image,
                          series_instance_UIDs=series_instance_UIDs,
                          bits_allocated=bits_allocated, bits_stored=bits_stored,
-                         rescale_slope=rescale_slope, rescale_intercept=rescale_intercept,
+                         rescale_slope_list=rescale_slope_list, rescale_intercept_list=rescale_intercept_list,
+                         scale_slope_list=scale_slope_list, scale_intercept_list=scale_intercept_list,
                          scanner_make=scanner_make, scanner_model=scanner_model, scanner_serial_number=scanner_serial_number,
                          scanner_field_strength=scanner_field_strength, date_acquired=study_date, time_acquired=study_time)
     def get_inversion_times(self):
@@ -517,6 +561,9 @@ class ImageSetT1VIR(ImageSetAbstract):
         mu.log("ImageSetT1VIR[%s]::update_ROI_mask() : resampled mask values [%d, %d]" %
                (self.get_set_label(), np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
         self.set_T1_roi_mask(resampled_mask)
+    def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None):
+        self._write_roi_pdf_page(c, sup_title, mask_override_sitk_im,
+                                 all_roi_values=list(T1_ROI_LABEL_IDX_MAP.values()))
 
 
 
@@ -530,8 +577,10 @@ class ImageSetT1VFA(ImageSetAbstract):
                  series_instance_UIDs=None,
                  bits_allocated=None,
                  bits_stored=None,
-                 rescale_slope=None,
-                 rescale_intercept=None,
+                 rescale_slope_list=None,
+                 rescale_intercept_list=None,
+                 scale_slope_list=None,
+                 scale_intercept_list=None,
                  scanner_make=None, scanner_model=None, scanner_serial_number=None, scanner_field_strength=None,
                  study_date=None, study_time=None):
         super().__init__(set_label=set_label,
@@ -543,7 +592,8 @@ class ImageSetT1VFA(ImageSetAbstract):
                          geometry_image=geometry_image,
                          series_instance_UIDs=series_instance_UIDs,
                          bits_allocated=bits_allocated, bits_stored=bits_stored,
-                         rescale_slope=rescale_slope, rescale_intercept=rescale_intercept,
+                         rescale_slope_list=rescale_slope_list, rescale_intercept_list=rescale_intercept_list,
+                         scale_slope_list=scale_slope_list, scale_intercept_list=scale_intercept_list,
                          scanner_make=scanner_make, scanner_model=scanner_model, scanner_serial_number=scanner_serial_number,
                          scanner_field_strength=scanner_field_strength, date_acquired=study_date, time_acquired=study_time)
     def get_flip_angles(self):
@@ -566,6 +616,9 @@ class ImageSetT1VFA(ImageSetAbstract):
         mu.log("ImageSetT1VFA[%s]::update_ROI_mask() : resampled mask values [%d, %d]" %
                (self.get_set_label(), np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
         self.set_T1_roi_mask(resampled_mask)
+    def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None):
+        self._write_roi_pdf_page(c, sup_title, mask_override_sitk_im,
+                                 all_roi_values=list(T1_ROI_LABEL_IDX_MAP.values()))
 
 
 class ImageSetT2MSE(ImageSetAbstract):
@@ -578,8 +631,10 @@ class ImageSetT2MSE(ImageSetAbstract):
                  series_instance_UIDs=None,
                  bits_allocated=None,
                  bits_stored=None,
-                 rescale_slope=None,
-                 rescale_intercept=None,
+                 rescale_slope_list=None,
+                 rescale_intercept_list=None,
+                 scale_slope_list=None,
+                 scale_intercept_list=None,
                  scanner_make=None, scanner_model=None, scanner_serial_number=None, scanner_field_strength=None,
                  study_date=None, study_time=None):
         super().__init__(set_label=set_label,
@@ -591,7 +646,8 @@ class ImageSetT2MSE(ImageSetAbstract):
                          geometry_image=geometry_image,
                          series_instance_UIDs=series_instance_UIDs,
                          bits_allocated=bits_allocated, bits_stored=bits_stored,
-                         rescale_slope=rescale_slope, rescale_intercept=rescale_intercept,
+                         rescale_slope_list=rescale_slope_list, rescale_intercept_list=rescale_intercept_list,
+                         scale_slope_list=scale_slope_list, scale_intercept_list=scale_intercept_list,
                          scanner_make=scanner_make, scanner_model=scanner_model, scanner_serial_number=scanner_serial_number,
                          scanner_field_strength=scanner_field_strength, date_acquired=study_date, time_acquired=study_time)
     def get_echo_times(self):
@@ -615,6 +671,9 @@ class ImageSetT2MSE(ImageSetAbstract):
         mu.log("ImageSetT2MSE[%s]::update_ROI_mask() : resampled mask values [%d, %d]" %
                (self.get_set_label(), np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
         self.set_T2_roi_mask(resampled_mask)
+    def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None):
+        self._write_roi_pdf_page(c, sup_title, mask_override_sitk_im,
+                                 all_roi_values=list(T2_ROI_LABEL_IDX_MAP.values()))
 
 class ImageSetDW(ImageSetAbstract):
     def __init__(self,
@@ -626,8 +685,10 @@ class ImageSetDW(ImageSetAbstract):
                  series_instance_UIDs=None,
                  bits_allocated=None,
                  bits_stored=None,
-                 rescale_slope=None,
-                 rescale_intercept=None,
+                 rescale_slope_list=None,
+                 rescale_intercept_list=None,
+                 scale_slope_list=None,
+                 scale_intercept_list=None,
                  scanner_make=None, scanner_model=None, scanner_serial_number=None, scanner_field_strength=None,
                  study_date=None, study_time=None):
         super().__init__(set_label=set_label,
@@ -639,7 +700,8 @@ class ImageSetDW(ImageSetAbstract):
                          geometry_image=geometry_image,
                          series_instance_UIDs=series_instance_UIDs,
                          bits_allocated=bits_allocated, bits_stored=bits_stored,
-                         rescale_slope=rescale_slope, rescale_intercept=rescale_intercept,
+                         rescale_slope_list=rescale_slope_list, rescale_intercept_list=rescale_intercept_list,
+                         scale_slope_list=scale_slope_list, scale_intercept_list=scale_intercept_list,
                          scanner_make=scanner_make, scanner_model=scanner_model, scanner_serial_number=scanner_serial_number,
                          scanner_field_strength=scanner_field_strength, date_acquired=study_date, time_acquired=study_time)
     def get_b_values(self):
@@ -663,6 +725,9 @@ class ImageSetDW(ImageSetAbstract):
         mu.log("ImageSetDW[%s]::update_ROI_mask() : resampled mask values [%d, %d]" %
                (self.get_set_label(), np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
         self.set_dw_roi_mask(resampled_mask)
+    def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None):
+        self._write_roi_pdf_page(c, sup_title, mask_override_sitk_im,
+                                 all_roi_values=list(DW_ROI_LABEL_IDX_MAP.values()))
 
 
 
@@ -713,3 +778,6 @@ class ImageSetT2Star(ImageSetAbstract):
         mu.log("ImageSetT2Star[%s]::update_ROI_mask() : resampled mask values [%d, %d]" %
                (self.get_set_label(), np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
         self.set_T2_roi_mask(resampled_mask)
+    def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None):
+        self.__write_roi_pdf_page(c, sup_title, mask_override_sitk_im,
+                                  all_roi_values=list(T2_ROI_LABEL_IDX_MAP.values()))

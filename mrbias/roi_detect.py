@@ -139,7 +139,13 @@ class ROITemplate(object):
         # load the image file
         mu.log("ROITemplate::init(): loading template geometry image from DCM dir: %s" %
                dcm_dir, LogLevels.LOG_INFO)
-        self.image = mu.get_sitk_image_from_dicom_image_folder(dcm_dir)
+        files_sorted, series_uid, rescale_slope, rescale_intercept, \
+            scale_slope, scale_intercept, is_philips = mu.parse_dicom_dir_for_info(dcm_dir)
+        r_val = mu.load_image_from_filelist(files_sorted, series_uid,
+                                            rescale_slope, rescale_intercept,
+                                            scale_slope, scale_intercept, philips_scaling=is_philips)
+        im, rescale_slope, rescale_intercept, scale_slope, scale_intercept = r_val
+        self.image = im
         # parse the ROI yaml files
         self.t1_roi_dict = self.parse_t1_yaml(t1_yaml_file)
         self.t2_roi_dict = self.parse_t2_yaml(t2_yaml_file)
@@ -452,7 +458,7 @@ class ROIDetector(object):
         geo_arr = sitk.GetArrayFromImage(self.fixed_geom_im)
         roi_arr = sitk.GetArrayFromImage(self.get_fixed_T1_mask())
         t1_slice_dx = self.roi_template.get_t1_slice_dx()
-        t1_roi_values = self.roi_template.get_t1_roi_values()
+        t1_roi_values = list(T1_ROI_LABEL_IDX_MAP.values())#self.roi_template.get_t1_roi_values()
         self.__visualise_rois(geo_arr, roi_arr, t1_slice_dx, t1_roi_values, ax,
                               title="T1 (template)")
 
@@ -460,7 +466,7 @@ class ROIDetector(object):
         geo_arr = sitk.GetArrayFromImage(self.fixed_geom_im)
         roi_arr = sitk.GetArrayFromImage(self.get_fixed_T2_mask())
         t2_slice_dx = self.roi_template.get_t2_slice_dx()
-        t2_roi_values = self.roi_template.get_t2_roi_values()
+        t2_roi_values = list(T2_ROI_LABEL_IDX_MAP.values())#self.roi_template.get_t2_roi_values()
         self.__visualise_rois(geo_arr, roi_arr, t2_slice_dx, t2_roi_values, ax,
                               title="T2 (template)")
 
@@ -468,26 +474,29 @@ class ROIDetector(object):
         geo_arr = sitk.GetArrayFromImage(self.fixed_geom_im)
         roi_arr = sitk.GetArrayFromImage(self.get_fixed_DW_mask())
         dw_slice_dx = self.roi_template.get_dw_slice_dx()
-        dw_roi_values = self.roi_template.get_dw_roi_values()
+        dw_roi_values = list(DW_ROI_LABEL_IDX_MAP.values())#self.roi_template.get_dw_roi_values()
         self.__visualise_rois(geo_arr, roi_arr, dw_slice_dx, dw_roi_values, ax,
                               title="DW (template)")
 
     def visualise_detected_T1_rois(self, ax=None):
+        t1_roi_values = list(T1_ROI_LABEL_IDX_MAP.values()) # self.roi_template.get_t1_roi_values()
         self.__visualise_transformed_rois(self.get_detected_T1_mask(),
                                           self.roi_template.get_t1_slice_dx(),
-                                          self.roi_template.get_t1_roi_values(), ax,
+                                          t1_roi_values, ax,
                                           title="T1 (detected)")
 
     def visualise_detected_T2_rois(self, ax=None):
+        t2_roi_values = list(T2_ROI_LABEL_IDX_MAP.values()) # self.roi_template.get_t2_roi_values()
         self.__visualise_transformed_rois(self.get_detected_T2_mask(),
                                           self.roi_template.get_t2_slice_dx(),
-                                          self.roi_template.get_t2_roi_values(), ax,
+                                          t2_roi_values, ax,
                                           title="T2 (detected)")
 
     def visualise_detected_DW_rois(self, ax=None):
+        dw_roi_values = list(DW_ROI_LABEL_IDX_MAP.values()) #self.roi_template.get_dw_roi_values()
         self.__visualise_transformed_rois(self.get_detected_DW_mask(),
                                           self.roi_template.get_dw_slice_dx(),
-                                          self.roi_template.get_dw_roi_values(), ax,
+                                          dw_roi_values, ax,
                                           title="DW (detected)")
 
     def visualise_T1_registration(self, pre_reg_ax=None, post_reg_ax=None, invert_moving=True):
@@ -853,6 +862,7 @@ class RegistrationCorrelationGradientDescent(RegistrationMethodAbstract):
     def register(self):
         moving = sitk.Cast(self.moving_im, sitk.sitkFloat32)
         fixed = sitk.Cast(self.fixed_im, sitk.sitkFloat32)
+
         # setup the registration method
         R = sitk.ImageRegistrationMethod()
         R.SetMetricAsCorrelation()
@@ -920,6 +930,9 @@ class RegistrationMSMEGridSearch(RegistrationMethodAbstract):
     def register(self):
         moving = sitk.Cast(self.moving_im, sitk.sitkFloat32)
         fixed = sitk.Cast(self.fixed_im, sitk.sitkFloat32)
+        # normalise images intensity ranges
+        moving = sitk.Normalize(moving)
+        fixed = sitk.Normalize(fixed)
         # setup the registration method
         R = sitk.ImageRegistrationMethod()
         R.SetMetricAsMeanSquares()

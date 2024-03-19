@@ -246,9 +246,17 @@ class CurveFitROI(imset.ImageSetROI):
     def __init__(self, label,
                  voxel_data_array, voxel_data_xyz, measurement_variable_vector,
                  measurement_variable_name, measurement_variable_units,
-                 reference_value, initialisation_value, exclusion_list=None, exclusion_label=None):
+                 reference_value, initialisation_value, exclusion_list=None, exclusion_label=None,
+                 rescale_slope_list=None, rescale_intercept_list=None,
+                 scale_slope_list=None, scale_intercept_list=None,
+                 bits_allocated=None, bits_stored=None,
+                 scanner_make=None):
         super().__init__(label, voxel_data_array, voxel_data_xyz, measurement_variable_vector,
-                         measurement_variable_name, measurement_variable_units)
+                         measurement_variable_name, measurement_variable_units,
+                         rescale_slope_list=rescale_slope_list, rescale_intercept_list=rescale_intercept_list,
+                         scale_slope_list=scale_slope_list, scale_intercept_list=scale_intercept_list,
+                         bits_allocated=bits_allocated, bits_stored=bits_stored,
+                         scanner_make=scanner_make)
         mu.log("\t\tCurveFitROI::__init__(): ref value [%0.2f] and init value [%0.2f]" %
                (reference_value, initialisation_value), LogLevels.LOG_INFO)
 
@@ -275,27 +283,29 @@ class CurveFitROI(imset.ImageSetROI):
         # colour settings
         self.colour = mu.ColourSettings()
 
-    def exclude_clipped_values(self, clip_value, percent_clipped_voxels):
+    def exclude_clipped_values(self, percent_clipped_voxels):
         if self.is_averaged or self.is_normalised:
             mu.log("\t\tCurveFitROI::exclude_clipped_values(): skipping exclusion as averaging or "
                    "normalisation has been applied [exclusion should be performed first on"
                    "raw voxel values]", LogLevels.LOG_WARNING)
             return None
-        # # determine the clip value based on datatype
-        # example_vox = self.voxel_data_array.flatten()[0]
-        # if np.issubdtype(example_vox, np.integer):
-        #     clip_value = np.iinfo(example_vox.dtype).max
-        # elif np.issubdtype(example_vox, np.floating):
-        #     clip_value = np.finfo(example_vox.dtype).max
-        # else:
-        #     assert False, "CurveFitROI::exclude_clipped_values() : voxel data array of unknown datatype (%s)"\
-        #                   % type(example_vox)
         # search for clipped values
         n_vox, n_meas = self.voxel_data_array.shape
         parital_clipping = False
+        clip_val_list = []
         for meas_dx in range(n_meas):
+            # determine clip value for each measurement, based on:
+            # - number of bits allocated in raw dicom unsigned integer data
+            # - the mapping from raw integer to floating point values (image scaling)
+            raw_clip_value = float(2 ** self.bits_stored) - 6.0  # technically should be minus 1, but like to add a bit of headroom
+            clip_value = self.rescale_slope_list[meas_dx]*raw_clip_value + self.rescale_intercept_list[meas_dx]
+            if self.scanner_make == "Philips":
+                clip_value = clip_value / (self.rescale_slope_list[meas_dx] * self.scale_slope_list[meas_dx])
+            clip_val_list.append(clip_value)
+
             # only check for clipping in included measurements (those not excluded by a prior exclusion)
             if self.include_vector[meas_dx]:
+
                 if np.any(np.greater(self.voxel_data_array[:, meas_dx], clip_value)):
                     self.is_clipped = True
                     # if entire ROI at measurement x is clipped then ignore
@@ -311,6 +321,8 @@ class CurveFitROI(imset.ImageSetROI):
                         mu.log("\t\tCurveFitROI::exclude_clipped_values(%d): partial clipping found in %s "
                                "(ref val=%0.2f) [measurement %d / %d]" %
                                (clip_value, self.label, self.reference_value, meas_dx + 1, n_meas), LogLevels.LOG_INFO)
+        # convert clip value list to np array for comparison
+        clip_val_arr = np.array(clip_val_list)
 
         # if there is partial clipping (only some voxels clipped in a measurement) then try and reduce the voxels down to those
         # without clipping in any of measurements (making sure to exclude the completely clipped measurements)
@@ -318,13 +330,14 @@ class CurveFitROI(imset.ImageSetROI):
         if parital_clipping:
             n_clean = 0
             for vox_dx in range(n_vox):
-                if not np.any(np.greater(self.voxel_data_array[vox_dx, self.include_vector.astype(bool)], clip_value)):
+                if not np.any(np.greater(self.voxel_data_array[vox_dx, self.include_vector.astype(bool)],
+                                         clip_val_arr[self.include_vector.astype(bool)])):
                     n_clean = n_clean + 1
             # if there are enough unclipped voxels then prune down to the clean voxels
             if n_clean/n_vox*100. > percent_clipped_voxels:
-                mu.log("\t\tCurveFitROI::exclude_clipped_values(%d): removing clipped voxels in %s "
+                mu.log("\t\tCurveFitROI::exclude_clipped_values: removing clipped voxels in %s "
                        "(ref val=%0.2f)  left %0.1f pcnt of original voxels (%d/%d) [threshold is >= %0.2f pcnt]" %
-                       (clip_value, self.label, self.reference_value,
+                       (self.label, self.reference_value,
                         n_clean/n_vox*100., n_clean, n_vox, percent_clipped_voxels), LogLevels.LOG_INFO)
                 # create new voxel_data and voxel_xyz arrays
                 voxel_data_array = np.zeros([n_clean, n_meas])
@@ -332,7 +345,8 @@ class CurveFitROI(imset.ImageSetROI):
                 # copy the valid stuff (the unclipped voxel measurements)
                 clean_dx = 0
                 for vox_dx in range(n_vox):
-                    if not np.any(np.greater(self.voxel_data_array[vox_dx, self.include_vector.astype(bool)], clip_value)):
+                    if not np.any(np.greater(self.voxel_data_array[vox_dx, self.include_vector.astype(bool)],
+                                             clip_val_arr[self.include_vector.astype(bool)])):
                         voxel_data_array[clean_dx] = self.voxel_data_array[vox_dx, :]
                         voxel_data_xyz[0][clean_dx] = self.voxel_data_xyz[0][vox_dx]
                         voxel_data_xyz[1][clean_dx] = self.voxel_data_xyz[1][vox_dx]
@@ -343,11 +357,11 @@ class CurveFitROI(imset.ImageSetROI):
                 self.voxel_data_xyz = voxel_data_xyz
             # if pruning would reduce too many voxels (below threshold) then just exclude the measurements which are clipped
             else:
-                mu.log("\t\tCurveFitROI::exclude_clipped_values(%d): excluding partially clipped measurements as removing clipped voxels in %s "
+                mu.log("\t\tCurveFitROI::exclude_clipped_values: excluding partially clipped measurements as removing clipped voxels in %s "
                        "(ref val=%0.2f) would leave only %0.1f pcnt of original voxels (%d/%d) [threshold is >= %0.2f pcnt]" %
-                       (clip_value, self.label, self.reference_value,
+                       (self.label, self.reference_value,
                         n_clean/n_vox*100., n_clean, n_vox, percent_clipped_voxels), LogLevels.LOG_INFO)
-                for meas_dx in range(n_meas):
+                for meas_dx, clip_value in enumerate(clip_val_list):
                     if np.any(np.greater(self.voxel_data_array[:, meas_dx], clip_value)):
                         self.include_vector[meas_dx] = 0
                         self.exclude_reason_vector[meas_dx].append('clipped')
@@ -777,7 +791,14 @@ class CurveFitAbstract(ABC):
                                  reference_value=ref_roi.value,
                                  initialisation_value=init_roi.value,
                                  exclusion_list=exclusion_list,
-                                 exclusion_label=exclusion_label)
+                                 exclusion_label=exclusion_label,
+                                 rescale_slope_list=im_roi.rescale_slope_list,
+                                 rescale_intercept_list=im_roi.rescale_intercept_list,
+                                 scale_slope_list=im_roi.scale_slope_list,
+                                 scale_intercept_list=im_roi.scale_intercept_list,
+                                 bits_allocated=im_roi.bits_allocated,
+                                 bits_stored=im_roi.bits_stored,
+                                 scanner_make=im_roi.scanner_make)
             self.cf_rois[roi_dx] = cf_roi
 
 
@@ -830,9 +851,9 @@ class CurveFitAbstract(ABC):
         self.__preproc_estimate_cf_start_point()
 
     # todo: check if other scanner data has different number range / clipping value
-    def __preproc_exclude_clipped_values(self, clip_value=4090, percent_clipped_values=10):
+    def __preproc_exclude_clipped_values(self, percent_clipped_values=10):
         for roi_dx, cf_roi in self.cf_rois.items():
-            cf_roi.exclude_clipped_values(clip_value, percent_clipped_values)
+            cf_roi.exclude_clipped_values(percent_clipped_values)
 
     def __preproc_exclude_user_list(self):
         if self.exclusion_list is not None:
@@ -1256,6 +1277,8 @@ class CurveFitAbstract(ABC):
         n_rows = 2
         rois_per_row = int(np.ceil(n_rois/float(n_rows)))
         f, axes_arr = plt.subplots(n_rows, rois_per_row)
+        if n_rows == 1 or rois_per_row == 1: # hacky/likely to fail
+            axes_arr = [axes_arr]
         f.suptitle(sup_title)
         f.set_size_inches(14, 8)
         # loop over the axes and plot the roi decay/recovery curves
@@ -1324,13 +1347,23 @@ class CurveFitAbstract(ABC):
                       symbol_of_interest,
                       reference_label,
                       error_name]]
+        err_min, err_max = np.min(df[error_name]), np.max(df[error_name])
 
         # setup the figure
         with sns.axes_style(mu.SEABORN_STYLE):
-            if is_system == True:
+            # create the number of axes based on the range of error in the results
+            # - ax1: for error exceeding the central limit
+            # - ax2: always present showing error around zero (+- central limit)
+            # - ax3: for error bellow the central limit
+            ax1, ax2, ax3 = None, None, None
+            if (err_min < -central_limit_pcnt) and (central_limit_pcnt < err_max):
                 f, (ax1, ax2, ax3) = plt.subplots(3, 1, gridspec_kw={'height_ratios': [1, 2, 1]})
-            if is_system == False:
-                f, (ax2) = plt.subplots(1, 1)
+            elif (err_min < -central_limit_pcnt):
+                f, (ax2, ax3) = plt.subplots(2, 1, gridspec_kw={'height_ratios': [2, 1]})
+            elif (central_limit_pcnt < err_max):
+                f, (ax1, ax2) = plt.subplots(2, 1, gridspec_kw={'height_ratios': [1, 2]})
+            else:
+                f, ax2 = plt.subplots(1, 1)
             f.suptitle(sup_title)
             f.set_size_inches(12, 8)
             f.subplots_adjust(bottom=0.2)
@@ -1341,14 +1374,11 @@ class CurveFitAbstract(ABC):
             for roi_label in roi_labels:
                 col_pal.append(col_settings.get_ROI_colour(roi_label))
 
-            if is_system == True:
-                axs = [ax1, ax2, ax3]
-            if is_system == False:
-                axs = [ax2]
+            axs = [ax for ax in [ax1, ax2, ax3] if (ax is not None)]
             for ax in axs:
                 # draw the error plot
                 box_linewidth = 1
-                strip_jitter = 0.25
+                strip_jitter = 0.15
                 strip_alpha = 0.5
                 if 'average' in self.preproc_dict.keys():
                     box_linewidth = 0
@@ -1358,7 +1388,7 @@ class CurveFitAbstract(ABC):
                             boxprops=dict(alpha=.5), showfliers=False, linewidth=box_linewidth,
                             order=roi_labels, palette=col_pal)
                 sns.stripplot(x="RoiLabel", y=error_name, data=df_plot, ax=ax,
-                              jitter=strip_jitter, dodge=True, alpha=strip_alpha,
+                              jitter=strip_jitter, dodge=False, alpha=strip_alpha,
                               order=roi_labels, palette=col_pal, hue="RoiLabel", legend=False)
 
             # update the x labels to include the reference value
@@ -1376,27 +1406,29 @@ class CurveFitAbstract(ABC):
                                                                 reference_label.replace("_reference", "_ref"),
                                                                 roi_ref_relax_val))
             
-            if is_system == True:
+            # set the axis limits
+            ax2.set(ylim=(-central_limit_pcnt, central_limit_pcnt))
+            if ax1 is not None:
+                ax1.set(ylim=(central_limit_pcnt, err_max+10)) # 10 to padd past the highest value
+            if ax3 is not None:
+                ax3.set(ylim=(err_min-10, -central_limit_pcnt)) # 10 to padd below the lowest value
+            # turn off ax1 x-axis labels
+            if ax1 is not None:
+                ax1.get_xaxis().set_ticklabels([])
+                ax1.set_xlabel("")
+                ax1.set_ylabel("")
+            # draw the x-axis on the lowest plot available
+            if ax3 is not None:
+                ax3.set_ylabel("")
                 ax3.get_xaxis().set_ticklabels(xtick_label_vec)
-                abs_max_lim = np.max(np.abs(ax1.get_ylim()[1]))
-                ax1.set(ylim=(central_limit_pcnt, abs_max_lim))
-                ax2.set(ylim=(-central_limit_pcnt, central_limit_pcnt))
-                ax3.set(ylim=(-abs_max_lim, -central_limit_pcnt))
-            # style x axis labels
                 plt.setp(ax3.get_xticklabels(), rotation=45, horizontalalignment="right")
-                for ax in [ax1, ax2]:
-                    ax.get_xaxis().set_ticklabels([])
-                    ax.set_xlabel("")
-                # style y axis labels
-                for ax in [ax1, ax3]:
-                    ax.set_ylabel("")
-            if is_system == False:
-                ax2.get_xaxis().set_ticklabels(xtick_label_vec)
-                ax2.set(ylim=(-central_limit_pcnt, central_limit_pcnt))
-                plt.setp(ax2.get_xticklabels(), rotation=45, horizontalalignment="right")
                 ax2.get_xaxis().set_ticklabels([])
                 ax2.set_xlabel("")
-            # style y axis labels
+            else:
+                ax2.get_xaxis().set_ticklabels(xtick_label_vec)
+                plt.setp(ax2.get_xticklabels(), rotation=45, horizontalalignment="right")
+
+            # add the central detail
             ax2.set(yticks=central_ticks)
             ax2.axhline(y=0, linewidth=2, color='gray', alpha=0.5)
             for ylim in [-abs_limit_line, abs_limit_line]:
@@ -1414,7 +1446,6 @@ class CurveFitAbstract(ABC):
             plt.close(f)
         # -------------------------------------------------------------
         c.showPage()  # new page
-
 
     def get_imageset_name(self):
         return self.image_set.get_set_label()

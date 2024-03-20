@@ -32,10 +32,12 @@ configuration_filename_a = os.path.join("config", "validation_diffusion_config.y
 #  dicom directories to analyse
 dicom_dirs = []
 for i in range(1,13):
-    dir = "data/month"+ str(i) + "_trace"
+    #dir = "data/month"+ str(i) + "_trace"
+    dir = "/Users/stanleynorris/Desktop/MRBIAS/mrbias/data/month" + str(i) + "_trace"
     dicom_dirs.append(dir)
 
 # create MRBIAS analysis objects
 for dir in dicom_dirs:
    mrb = MRBIAS(configuration_filename_a, write_to_screen=True)
    mrb.analyse(dir)
+   assert False

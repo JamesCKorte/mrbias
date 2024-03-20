@@ -41,8 +41,8 @@ curve_fitting:
   # -----------------------------------------------------------------------------------------------------------------
   # PRE-PROCESSING
   # -----------------------------------------------------------------------------------------------------------------
-  averaging: "voxels_in_ROI"              # options include [none, voxels_in_ROI]
-  normalisation: "voxel_max"              # options include [none, voxel_max, roi_max]
+  averaging: "none"              # options include [none, voxels_in_ROI]
+  normalisation: "roi_max"              # options include [none, voxel_max, roi_max]
   exclude: "none"                      # options include [none, clipped]
   percent_clipped_threshold: 100           # [0, 100] for parital clipping, the number of unclipped/clean voxels required across all measurements in the ROI
   # -----------------------------------------------------------------------------------------------------------------
@@ -58,6 +58,4 @@ curve_fitting:
   # -----------------------------------------------------------------------------------------------------------------
   save_voxel_data: True
   save_parameter_maps: False # future feature (not implemented)
-
-
 

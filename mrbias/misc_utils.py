@@ -415,7 +415,7 @@ class DICOMSearch(object):
     def __init__(self, target_dir, read_single_file=False, output_csv_filename=None):
         log("DICOMSearch::init(): searching target DCM dir: %s" % target_dir,
             LogLevels.LOG_INFO)
-        private_tags = [dcm.tag.Tag(0x2001, 0x1020), dcm.tag.Tag(0x2005, 0x100E), dcm.tag.Tag(0x2005, 0x100D)]
+        private_tags = [dcm.tag.Tag(0x2001, 0x1020), dcm.tag.Tag(0x2005, 0x100E), dcm.tag.Tag(0x2005, 0x100D), dcm.tag.Tag(0x0019, 0x100C)]
         filepaths = []
         for path, dirs, files in os.walk(target_dir):
             for file in files:
@@ -463,7 +463,8 @@ class DICOMSearch(object):
                              "SequenceName", "MagneticFieldStrength", "InversionTime", "DiffusionBValue"]
         alternatives_dict = {"SequenceName" : [dcm.tag.Tag(0x2001, 0x1020), "PulseSequenceName"],
                              "ScaleSlope" : [dcm.tag.Tag(0x2005, 0x100E)],
-                             "ScaleIntercept" : [dcm.tag.Tag(0x2005, 0x100D)]}
+                             "ScaleIntercept" : [dcm.tag.Tag(0x2005, 0x100D)],
+                             "DiffusionBValue" : [dcm.tag.Tag(0x0019, 0x100C)]}
                              # "ScanningSequence": ["EchoPulseSequence"], #[EchoPulseSequence"],
                              # "MRAcquisitionType": ["VolumetricProperties"],
                              # "AcquisitionDate": ["InstanceCreationDate", "ContentDate"],

@@ -99,6 +99,8 @@ def main():
             scan_session = SystemSessionPhilipsIngeniaAmbitionX(dcm_dir)
         elif ss_type == "DiffPhilipsIngeniaAmbitionX":
             scan_session = DiffusionSessionPhilipsIngeniaAmbitionX(dcm_dir)
+        elif ss_type == "DiffSiemensSkyra":
+            scan_session = DiffusionSessionSiemensSkyra(dcm_dir)
         scan_session.write_pdf_summary_page(c)
 
         geometric_images = scan_session.get_geometric_images()
@@ -325,7 +327,8 @@ class ScanSessionAbstract(ABC):
         # - loop over the image in acquisition order and link with the last geom image taken
         df = self.meta_data_df.drop_duplicates(subset=["SeriesInstanceUID"])
         geom_options = pd.unique(df["GeomSet"]).tolist()
-        geom_options.remove('')
+        if '' in geom_options:
+            geom_options.remove('')
         if len(geom_options):
             current_geom = geom_options[0]
             for idx, r in df.iterrows():
@@ -432,47 +435,65 @@ class ScanSessionAbstract(ABC):
                    "loading geometric images from disk...", LogLevels.LOG_INFO)
             df = self.meta_data_df.drop_duplicates(subset=["GeomSet"])
             geom_options = pd.unique(df["GeomSet"]).tolist()
-            geom_options.remove('')
+            if '' in geom_options:
+                geom_options.remove('')
             geomset_series_uid_list = df[df["GeomSet"].isin(geom_options)].SeriesInstanceUID
             geom_image_list = []
             for series_instance_uid, geoset_label in zip(geomset_series_uid_list, geom_options):
                 image_set_df = self.meta_data_df[self.meta_data_df.SeriesInstanceUID == series_instance_uid]
-                set_series_uids = image_set_df.drop_duplicates(subset=["SeriesInstanceUID"]).SeriesInstanceUID
-                # get the datatype details
-                scanner_make = image_set_df.drop_duplicates(subset=["Manufacturer"]).Manufacturer.iloc[0]
-                bits_allocated = image_set_df.drop_duplicates(subset=["BitsAllocated"]).BitsAllocated.iloc[0]
-                bits_stored = image_set_df.drop_duplicates(subset=["BitsStored"]).BitsStored.iloc[0]
-                rescale_slope = image_set_df.drop_duplicates(subset=["RescaleSlope"]).RescaleSlope.iloc[0]
-                rescale_intercept = image_set_df.drop_duplicates(subset=["RescaleIntercept"]).RescaleIntercept.iloc[0]
-                assert image_set_df.drop_duplicates(subset=["RescaleIntercept"]).RescaleIntercept.shape[0] == 1, "ScanSessionAbstract::get_geometric_images(): multiple RescaleIntercept values (i.e. per slice) for a single series not supported by MRBIAS"
-                assert image_set_df.drop_duplicates(subset=["RescaleSlope"]).RescaleSlope.shape[0] == 1, "ScanSessionAbstract::get_geometric_images(): multiple RescaleSlope values (i.e. per slice) for a single series not supported by MRBIAS"
-                # get all the slices
-                files_sorting = []
-                for index, row in image_set_df.iterrows():
-                    files_sorting.append((row["ImageFilePath"], row["SliceLocation"]))
-                # sort the slices by slice location before reading by sitk
-                files_sorting.sort(key=lambda x: x[1])
-                files_sorted = [x[0] for x in files_sorting]
-                # handle manufacturor specific images
-                scale_slope = None
-                scale_intercept = None
-                if scanner_make=="Philips":
-                    scale_slope = image_set_df.drop_duplicates(subset=["ScaleSlope"]).ScaleSlope.iloc[0]
-                    scale_intercept = image_set_df.drop_duplicates(subset=["ScaleIntercept"]).ScaleIntercept.iloc[0]
-                    assert image_set_df.drop_duplicates(subset=["ScaleIntercept"]).ScaleIntercept.shape[0] == 1, "ScanSessionAbstract::get_geometric_images(): multiple ScaleIntercept values (i.e. per slice) for a single series not supported by MRBIAS"
-                    assert image_set_df.drop_duplicates(subset=["ScaleSlope"]).ScaleSlope.shape[0] == 1, "ScanSessionAbstract::get_geometric_images(): multiple ScaleSlope values (i.e. per slice) for a single series not supported by MRBIAS"
-                r_val = mu.load_image_from_filelist(files_sorted, series_instance_uid,
-                                                    rescale_slope, rescale_intercept,
-                                                    scale_slope, scale_intercept,
-                                                    series_descrp=row.SeriesDescription,
-                                                    philips_scaling=(scanner_make == "Philips"))
-                im, rescale_slope, rescale_intercept, scale_slope, scale_intercept = r_val
-                geom_image_list.append(ImageGeometric(geoset_label,
-                                                      im,
-                                                      series_instance_uid,
-                                                      bits_allocated, bits_stored,
-                                                      rescale_slope, rescale_intercept,
-                                                      scale_slope, scale_intercept))
+
+                # check if it is a geometric image (not diffusion, T1 or T2, etc...)
+                image_set_cat = pd.unique(image_set_df["Category"]).tolist()[0]
+                if (image_set_cat == IMAGE_CAT_STR_AND_DICOM_DICT[ImageCatetory.DW][0]):
+                    dw_imagesets = self.get_dw_image_sets(ignore_geometric_images=True)
+                    for dw_imset in dw_imagesets:
+                        #does this set match the one we want to use as geometric image
+                        if series_instance_uid == dw_imset.series_instance_UIDs[0]:
+                            #create an ImageGeometric from diffusion image
+                            geom_image_list.append(ImageGeometric(geoset_label,
+                                                                  dw_imset.image_list[0], #use b = 0
+                                                                  series_instance_uid,
+                                                                  bits_allocated = None,
+                                                                  bits_stored = None,
+                                                                  rescale_slope = None,
+                                                                  rescale_intercept = None))
+                    self.dw_imageset_list = None
+                else:
+                    # get the datatype details
+                    scanner_make = image_set_df.drop_duplicates(subset=["Manufacturer"]).Manufacturer.iloc[0]
+                    bits_allocated = image_set_df.drop_duplicates(subset=["BitsAllocated"]).BitsAllocated.iloc[0]
+                    bits_stored = image_set_df.drop_duplicates(subset=["BitsStored"]).BitsStored.iloc[0]
+                    rescale_slope = image_set_df.drop_duplicates(subset=["RescaleSlope"]).RescaleSlope.iloc[0]
+                    rescale_intercept = image_set_df.drop_duplicates(subset=["RescaleIntercept"]).RescaleIntercept.iloc[0]
+                    assert image_set_df.drop_duplicates(subset=["RescaleIntercept"]).RescaleIntercept.shape[0] == 1, "ScanSessionAbstract::get_geometric_images(): multiple RescaleIntercept values (i.e. per slice) for a single series not supported by MRBIAS"
+                    assert image_set_df.drop_duplicates(subset=["RescaleSlope"]).RescaleSlope.shape[0] == 1, "ScanSessionAbstract::get_geometric_images(): multiple RescaleSlope values (i.e. per slice) for a single series not supported by MRBIAS"
+                    # get all the slices
+                    files_sorting = []
+                    for index, row in image_set_df.iterrows():
+                        files_sorting.append((row["ImageFilePath"], row["SliceLocation"]))
+                    # sort the slices by slice location before reading by sitk
+                    files_sorting.sort(key=lambda x: x[1])
+                    files_sorted = [x[0] for x in files_sorting]
+                    # handle manufacturor specific images
+                    scale_slope = None
+                    scale_intercept = None
+                    if scanner_make=="Philips":
+                        scale_slope = image_set_df.drop_duplicates(subset=["ScaleSlope"]).ScaleSlope.iloc[0]
+                        scale_intercept = image_set_df.drop_duplicates(subset=["ScaleIntercept"]).ScaleIntercept.iloc[0]
+                        assert image_set_df.drop_duplicates(subset=["ScaleIntercept"]).ScaleIntercept.shape[0] == 1, "ScanSessionAbstract::get_geometric_images(): multiple ScaleIntercept values (i.e. per slice) for a single series not supported by MRBIAS"
+                        assert image_set_df.drop_duplicates(subset=["ScaleSlope"]).ScaleSlope.shape[0] == 1, "ScanSessionAbstract::get_geometric_images(): multiple ScaleSlope values (i.e. per slice) for a single series not supported by MRBIAS"
+                    r_val = mu.load_image_from_filelist(files_sorted, series_instance_uid,
+                                                        rescale_slope, rescale_intercept,
+                                                        scale_slope, scale_intercept,
+                                                        series_descrp=row.SeriesDescription,
+                                                        philips_scaling=(scanner_make == "Philips"))
+                    im, rescale_slope, rescale_intercept, scale_slope, scale_intercept = r_val
+                    geom_image_list.append(ImageGeometric(geoset_label,
+                                                        im,
+                                                        series_instance_uid,
+                                                        bits_allocated, bits_stored,
+                                                        rescale_slope, rescale_intercept,
+                                                        scale_slope, scale_intercept))
             self.geom_image_list = geom_image_list
         return self.geom_image_list
 
@@ -535,11 +556,11 @@ class ScanSessionAbstract(ABC):
             self.t2star_imageset_list = self._get_echo_image_sets(ImageCatetory.T2STAR_ME)
         return self.t2star_imageset_list
 
-    def get_dw_image_sets(self):
+    def get_dw_image_sets(self, ignore_geometric_images=False):
         if self.dw_imageset_list is None:
             mu.log("ScanSession::get_dw_image_sets(): "
                    "loading DW image sets from disk...", LogLevels.LOG_INFO)
-            self.dw_imageset_list = self._get_dw_image_sets(ImageCatetory.DW)
+            self.dw_imageset_list = self._get_dw_image_sets(ImageCatetory.DW, ignore_geometric_images)
         return self.dw_imageset_list
 
     def _get_image_sets(self, imageset_data_dict, category, n_expected_dcm_tags):
@@ -747,12 +768,13 @@ class ScanSessionAbstract(ABC):
                 assert False, "ScanSessionAbstract::_get_echo_image_sets() is only designed to be called by T2_MSE and T2STAR_ME models, not (%s) imageset category" % category
         return imageset_list
 
-    def _get_dw_image_sets(self, category):
+    def _get_dw_image_sets(self, category, ignore_geometric_images=False):
         imageset_list = []
         # acquisition timestamp
         study_date, study_time = self.get_study_date_time()
         # geometric images for linking
-        geom_images = self.get_geometric_images()
+        if not ignore_geometric_images:
+            geom_images = self.get_geometric_images()
         # get image sets from the dataframe
         category_name = IMAGE_CAT_STR_DICT[category]
         cat_df = self.meta_data_df[self.meta_data_df.Category == category_name]
@@ -840,9 +862,10 @@ class ScanSessionAbstract(ABC):
             ref_geom_image = None
             image_set_df = self.meta_data_df.drop_duplicates(subset=["ImageSet"])
             ref_geom_label = image_set_df[image_set_df.ImageSet == set_name].ReferenceGeometryImage.iloc[0]
-            for g_im in geom_images:
-                if g_im.get_label() == ref_geom_label:
-                    ref_geom_image = g_im
+            if not ignore_geometric_images:
+                for g_im in geom_images:
+                    if g_im.get_label() == ref_geom_label:
+                        ref_geom_image = g_im
             bits_allocated_list    = [x[0] for x in image_info_list]
             bits_stored_list       = [x[1] for x in image_info_list]
             rescale_slope_list     = [x[2] for x in image_info_list]
@@ -1070,6 +1093,21 @@ class DiffusionSessionPhilipsIngeniaAmbitionX(DiffusionSessionAbstract):
         df_2D_thick = df_2D[df_2D.SliceThickness == 4]
         df_2D_psn = df_2D_thick[df_2D_thick["SequenceName"].str.match(r"(?=.*\bDwiSE\b)") == True]
         df_2D_psn = df_2D_psn.sort_values(["DiffusionBValue"])
+        return df_2D_psn.index
+
+
+class DiffusionSessionSiemensSkyra(DiffusionSessionAbstract):
+    def __init__(self, dicom_dir):
+        super().__init__(dicom_dir, force_geometry_imageset=ImageCatetory.DW)
+
+    def get_geometric_series_UIDs(self):
+        return None
+
+    def get_dw_series_UIDs(self):
+        df_2D = super().get_2D_series()
+        df_2D_thick = df_2D[df_2D.SliceThickness == 4]
+        df_2D_psn = df_2D_thick[df_2D_thick["SequenceName"].str.match(r"^\*ep_b\d{1,4}t$")]
+        df_2D_psn = df_2D_thick.sort_values(["DiffusionBValue"])
         return df_2D_psn.index
 
 

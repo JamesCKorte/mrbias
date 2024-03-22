@@ -51,9 +51,9 @@ import mrbias.phantom_reference as phantom
 def main():
 
     # specify the configuration file to control the analysis
-    test_configuration_file = os.path.join(os.getcwd(), "..", "config", "example_config.yaml")
+    test_configuration_file = os.path.join(os.getcwd(), "..", "config", "example_AVL_Philips_config_allvials_nogeo.yaml")
     # specific the dicom directories to analyse
-    test_dicom_directory_a = os.path.join(os.getcwd(), "..", "data", "mrbias_testset_A")
+    test_dicom_directory_a = os.path.join(os.getcwd(), "..", "Newdata", "M231213A")
 
     # create a MRBIAS analysis object
     mrb = MRBIAS(test_configuration_file, write_to_screen=True)
@@ -250,7 +250,16 @@ class MRBIAS(object):
         phantom_maker = phan_config.get_phantom_manufacturer()
         phantom_type = phan_config.get_phantom_type()
         phantom_sn = phan_config.get_phantom_serial_number()
-        ph_model_num, ph_item_num = phantom_sn.split("-")
+        ph_model_num, ph_item_num = None, None
+        if (phantom_maker == "caliber_mri"):
+            try:
+                ph_model_num, ph_item_num = phantom_sn.split("-")
+            except ValueError:
+                mu.log(
+                    "MR-BIAS::analyse(): for CailberMRI phantoms the software expects a 'phantom_serial_number' in the configuration.yaml file "
+                    "which has the format 'model-sn' for example '130-001' for a diffusion phantom (130) and the first one made (001)",
+                    LogLevels.LOG_ERROR)
+                return None
         if not ((phantom_maker == "caliber_mri") and (phantom_type =="system_phantom") and (ph_model_num == "130")) and \
             not ((phantom_maker == "caliber_mri") and (phantom_type =="diffusion_phantom") and (ph_model_num == "128")) and \
                 not ((phantom_maker == "eurospin") and (phantom_type =="relaxometry")):

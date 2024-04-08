@@ -61,6 +61,7 @@ class ROITypeOptions(IntEnum):
     CYLINDER = 2
 
 class RegistrationOptions(IntEnum):
+    NONE = 0
     COREL_GRADIENTDESCENT = 1
     MSME_GRIDSEARCH = 2
     TWOSTAGE_MSMEGS_CORELGD = 3
@@ -787,7 +788,9 @@ class RegistrationMethodAbstract(ABC):
     def generate_registration_instance(reg_method, fixed_geom_im, target_geo_im, partial_fov=False):
         rego = None
         centre_images = not partial_fov
-        if reg_method == RegistrationOptions.COREL_GRADIENTDESCENT:
+        if reg_method == RegistrationOptions.NONE:
+            rego = RegistrationNone(fixed_geom_im, target_geo_im)
+        elif reg_method == RegistrationOptions.COREL_GRADIENTDESCENT:
             rego = RegistrationCorrelationGradientDescent(fixed_geom_im, target_geo_im,
                                                           centre_images=centre_images)
         elif reg_method == RegistrationOptions.MSME_GRIDSEARCH:
@@ -851,6 +854,16 @@ class RegistrationTwoStage(RegistrationMethodAbstract):
         return combined_transform, metric_b
 
 
+class RegistrationNone(RegistrationMethodAbstract):
+    def __init__(self, fixed_image, moving_image):
+        super().__init__(fixed_image, moving_image)
+        mu.log("RegistrationNone::init()", LogLevels.LOG_INFO)
+
+    def register(self):
+        metric_value = 0
+        final_transform = sitk.Euler3DTransform()
+        print(final_transform)
+        return final_transform, metric_value
 
 class RegistrationCorrelationGradientDescent(RegistrationMethodAbstract):
     def __init__(self, fixed_image, moving_image,

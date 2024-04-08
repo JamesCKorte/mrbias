@@ -218,7 +218,9 @@ class MRBIAS(object):
             for geom_image in geometric_images_linked:
                 # create a roi detector
                 reg_method = None
-                if roi_reg_method == "two_stage_msme-GS_correl-GD":
+                if roi_reg_method == "none":
+                    reg_method = roi_detect.RegistrationOptions.NONE
+                elif roi_reg_method == "two_stage_msme-GS_correl-GD":
                     reg_method = roi_detect.RegistrationOptions.TWOSTAGE_MSMEGS_CORELGD
                 elif roi_reg_method == "mattesMI-GD":
                     reg_method = roi_detect.RegistrationOptions.MMI_GRADIENTDESCENT

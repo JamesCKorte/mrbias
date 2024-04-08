@@ -246,6 +246,125 @@ class ReferencePhantomCaibreSystem(ReferencePhantomAbstract):
                                                     units="ms",
                                                     value_uncertainty=t2_value_uncertainty)
 
+class ReferencePhantomEurospinRelaxometry(ReferencePhantomAbstract):
+    def __init__(self, phantom_type, field_strength,
+                 t1_reference_file, t2_reference_file,
+                 t1_concentration_roi_map, t2_concentration_roi_map,
+                 temperature=None, serial_number=None):
+        assert os.path.isfile(t1_reference_file), "ReferencePhantomCaibreSystem::__init__(): unable to locate " \
+                                                  "T1 reference file (%s)" % t1_reference_file
+        assert os.path.isfile(t2_reference_file), "ReferencePhantomCaibreSystem::__init__(): unable to locate " \
+                                                  "T2 reference file (%s)" % t2_reference_file
+        self.t1_reference_file = t1_reference_file
+        self.t2_reference_file = t2_reference_file
+        self.t1_concentration_roi_map = t1_concentration_roi_map
+        self.t2_concentration_roi_map = t2_concentration_roi_map
+        self.concentration_error_tol = 1e-3
+        self.temp_error_tol = 5 # degrees celsius
+        if temperature is None:
+            temperature = 20.0
+            mu.log("ReferencePhantomEurospinRelaxometry::__init__(): "
+                   "no temperature provided (using default value of 20.0 degrees celsuis)", LogLevels.LOG_WARNING)
+        super().__init__(phantom_type, field_strength, temperature,
+                         "Eurospin", "Relaxometry", serial_number)
+
+    def load_reference_values(self):
+        self.load_t1_values()
+        self.load_t2_values()
+
+    def load_t1_values(self):
+        mu.log("ReferencePhantomEurospinRelaxometry::reading T1 reference file: %s" % self.t1_reference_file, LogLevels.LOG_INFO)
+        df = pd.read_csv(self.t1_reference_file)
+        # check for expected columns
+        for c in ["NiCl2 Concentration (mM)", "Temp (C)", "T1 reported (ms)"]:
+            assert (c in df.columns), "ReferencePhantomEurospinRelaxometry::load_t1_values(): reference csv is missing " \
+                                      "required column '%s' please check file: %s" % (c, self.t1_reference_file)
+        # convert and temp columns (i.e. '~20' convert to 20.0)
+        if df["Temp (C)"].dtype == object and isinstance(df.iloc[0]["Temp (C)"], str):
+            df["Temp (C)"] = df["Temp (C)"].str.replace('~', '')
+            df["Temp (C)"] = df["Temp (C)"].astype(float)
+        # map the concentrations to the MR-BIAS ROI naming scheme
+        # ---------------------------------------------------------
+        concentration_list = np.array(list(self.t1_concentration_roi_map.values()))
+        inv_map = {v: k for k, v in self.t1_concentration_roi_map.items()}
+        df = df.sort_values(['NiCl2 Concentration (mM)', 'Temp (C)'], ascending=[False, True])
+        df["roi_label"] = ""
+        for roi_concentration in df["NiCl2 Concentration (mM)"].unique().tolist():
+            # find the concentration which is closest matching ROI
+            nearest_contrn, error_contrn = mu.find_nearest_float(roi_concentration, concentration_list)
+            assert error_contrn < self.concentration_error_tol, "ReferencePhantomEurospinRelaxometry::load_t1_values(): " \
+                                                                "looking for concentration %0.5f, " \
+                                                                "closest matching T1 roi has a concentration error (%0.5f)" \
+                                                                "exceeding tolerance (%0.5f)" %\
+                                                                (roi_concentration, error_contrn, self.concentration_error_tol)
+            # label the dataframe rows with the ROI label
+            df.loc[np.isclose(df['NiCl2 Concentration (mM)'], nearest_contrn), 'roi_label'] = inv_map[nearest_contrn]
+        # ---------------------------------------------------------
+        # iterate over the valid rois and add to class ref_roi dictionary
+        for roi_label in df["roi_label"].unique().tolist():
+            # find the closest temperature
+            df_roi = df[df.roi_label == roi_label]
+            temp_vec = np.array(df["Temp (C)"].unique().tolist())
+            nearest_temp, error_temp = mu.find_nearest_float(self.temperature, temp_vec)
+            if error_temp > self.temp_error_tol:
+                mu.log("ReferencePhantomEurospinRelaxometry::load_t1_values() - closest temperature in reference file (%0.2f)"
+                       "exceeds the temperature tolerance (%0.2f deg celsuis)" % (nearest_temp, self.temp_error_tol),
+                       LogLevels.LOG_WARNING)
+            t1_value = df_roi[np.isclose(df_roi["Temp (C)"], nearest_temp)]["T1 reported (ms)"].values[0]
+            t1_value_uncertainty = None
+            if ("T1 uncertainty (ms)" in df_roi.columns):
+                t1_value_uncertainty = df_roi[np.isclose(df_roi["Temp (C)"], nearest_temp)]["T1 uncertainty (ms)"].values[0]
+            self.ref_rois[roi_label] = ReferenceROI(roi_label,
+                                                    value=t1_value,
+                                                    units="ms",
+                                                    value_uncertainty=t1_value_uncertainty)
+
+    def load_t2_values(self):
+        mu.log("ReferencePhantomEurospinRelaxometry::reading T2 reference file: %s" % self.t2_reference_file, LogLevels.LOG_INFO)
+        df = pd.read_csv(self.t2_reference_file)
+        # check for expected columns
+        for c in ["MnCl2 Concentration (mM)", "Temp (C)", "T2 reported (ms)"]:
+            assert (c in df.columns), "ReferencePhantomCaibreSystem::load_t2_values(): reference csv is missing " \
+                                      "required column '%s' please check file: %s" % (c, self.t2_reference_file)
+        # convert and temp columns (i.e. '~20' convert to 20.0)
+        if df["Temp (C)"].dtype == object and isinstance(df.iloc[0]["Temp (C)"], str):
+            df["Temp (C)"] = df["Temp (C)"].str.replace('~', '')
+            df["Temp (C)"] = df["Temp (C)"].astype(float)
+        # map the concentrations to the MR-BIAS ROI naming scheme
+        # ---------------------------------------------------------
+        concentration_list = np.array(list(self.t2_concentration_roi_map.values()))
+        inv_map = {v: k for k, v in self.t2_concentration_roi_map.items()}
+        df = df.sort_values(['MnCl2 Concentration (mM)', 'Temp (C)'], ascending=[False, True])
+        df["roi_label"] = ""
+        for roi_concentration in df["MnCl2 Concentration (mM)"].unique().tolist():
+            # find the concentration which is closest matching ROI
+            nearest_contrn, error_contrn = mu.find_nearest_float(roi_concentration, concentration_list)
+            assert error_contrn < self.concentration_error_tol, "ReferencePhantomEurospinRelaxometry::load_t2_values(): " \
+                                                                "closest matching T2 roi has a concentration error (%0.5f)" \
+                                                                "exceeding tolerance (%0.5f)" %\
+                                                                (error_contrn, self.concentration_error_tol)
+            # label the dataframe rows with the ROI label
+            df.loc[np.isclose(df['MnCl2 Concentration (mM)'], nearest_contrn), 'roi_label'] = inv_map[nearest_contrn]
+        # ---------------------------------------------------------
+        # iterate over the valid rois and add to class ref_roi dictionary
+        for roi_label in df["roi_label"].unique().tolist():
+            # find the closest temperature
+            df_roi = df[df.roi_label == roi_label]
+            temp_vec = np.array(df["Temp (C)"].unique().tolist())
+            nearest_temp, error_temp = mu.find_nearest_float(self.temperature, temp_vec)
+            if error_temp > self.temp_error_tol:
+                mu.log("ReferencePhantomEurospinRelaxometry::load_t2_values() - closest temperature in reference file (%0.2f)"
+                       "exceeds the temperature tolerance (%0.2f deg celsuis)" % (nearest_temp, self.temp_error_tol),
+                       LogLevels.LOG_WARNING)
+            t2_value = df_roi[np.isclose(df_roi["Temp (C)"], nearest_temp)]["T2 reported (ms)"].values[0]
+            t2_value_uncertainty = None
+            if ("T2 uncertainty (ms)" in df_roi.columns):
+                t2_value_uncertainty = df_roi[np.isclose(df_roi["Temp (C)"], nearest_temp)]["T2 uncertainty (ms)"].values[0]
+            self.ref_rois[roi_label] = ReferenceROI(roi_label,
+                                                    value=t2_value,
+                                                    units="ms",
+                                                    value_uncertainty=t2_value_uncertainty)
+
 
 class ReferencePhantomDiffusion(ReferencePhantomAbstract):
     def __init__(self, phantom_type, field_strength,
@@ -554,6 +673,78 @@ class ReferencePhantomCalibreSystem2p5(ReferencePhantomCaibreSystem):
         return t2_concentration_roi_map
 
 
+class ReferencePhantomEurospinRelaxometry1(ReferencePhantomEurospinRelaxometry):
+    def __init__(self, field_strength, temperature=None, serial_number=None):
+        eurospin_relax_phantom_dir = os.path.join(mu.reference_phantom_values_directory(),
+                                                  "eurospin_relaxometry_phantom")
+        mu.log("ReferencePhantomEurospinRelaxometry1::__init__() [%0.1f T, %s deg. celsius]" % (field_strength, temperature),
+               LogLevels.LOG_INFO)
+        # point it a valid reference file
+        t1_reference_file = None
+        t2_reference_file = None
+        if mu.isclose(field_strength, 1.5, abs_tol=0.01):
+            t1_reference_file = os.path.join(eurospin_relax_phantom_dir, "T1-Batch1_1p5T_userCreated_20240315.csv")
+            t2_reference_file = os.path.join(eurospin_relax_phantom_dir, "T2-Batch1_1p5T_userCreated_20240315.csv")
+        elif mu.isclose(field_strength, 3.0, abs_tol=0.01):
+            # note no T1 3.0T values given for batch 2.5 (using batch 2.0 values)
+            mu.log("ReferencePhantomEurospinRelaxometry1::__init__(): 3T values not available for this phantom yet! Contact Developers",
+                   LogLevels.LOG_ERROR)
+            assert False
+            #t1_reference_file = os.path.join(calibre_sys_phantom_batch_2_dir, "T1-Batch2_3T_dl-20210726.csv")
+            #t2_reference_file = os.path.join(calibre_sys_phantom_dir, "T2-Batch2p5_3T_dl-20210726.csv")
+
+        super().__init__(PhantomOptions.RELAXOMETRY_PHANTOM_EUROSPIN_BATCH1, field_strength,
+                         t1_reference_file, t2_reference_file,
+                         self.get_t1_concentration_roi_map(),
+                         self.get_t2_concentration_roi_map(),
+                         temperature, serial_number)
+
+    @staticmethod
+    def get_t1_concentration_roi_map():
+        # map the concentrations to the MRI-BIAS ROI naming scheme
+        t1_concentration_roi_map = {"t1_roi_18": 18,
+                                    "t1_roi_17": 17,
+                                    "t1_roi_16": 16,
+                                    "t1_roi_15": 15,
+                                    "t1_roi_14": 14,
+                                    "t1_roi_13": 13,
+                                    "t1_roi_12": 12,
+                                    "t1_roi_11": 11,
+                                    "t1_roi_10": 10,
+                                    "t1_roi_9": 9,
+                                    "t1_roi_8": 8,
+                                    "t1_roi_7": 7,
+                                    "t1_roi_6": 6,
+                                    "t1_roi_5": 5,
+                                    "t1_roi_4": 4,
+                                    "t1_roi_3": 3,
+                                    "t1_roi_2": 2,
+                                    "t1_roi_1": 1}
+        return t1_concentration_roi_map
+
+    @staticmethod
+    def get_t2_concentration_roi_map():
+        # map the concentrations to the MRI-BIAS ROI naming scheme
+        t2_concentration_roi_map = {"t2_roi_18": 18,
+                                    "t2_roi_17": 17,
+                                    "t2_roi_16": 16,
+                                    "t2_roi_15": 15,
+                                    "t2_roi_14": 14,
+                                    "t2_roi_13": 13,
+                                    "t2_roi_12": 12,
+                                    "t2_roi_11": 11,
+                                    "t2_roi_10": 10,
+                                    "t2_roi_9":   9,
+                                    "t2_roi_8":   8,
+                                    "t2_roi_7":   7,
+                                    "t2_roi_6":   6,
+                                    "t2_roi_5":   5,
+                                    "t2_roi_4":   4,
+                                    "t2_roi_3":   3,
+                                    "t2_roi_2":   2,
+                                    "t2_roi_1":   1}
+        return t2_concentration_roi_map
+
 class ReferencePhantomCalibreSystemFitInit(ReferencePhantomCaibreSystem):
     def __init__(self, field_strength, temperature=None):
         calibre_sys_phantom_dir = os.path.join(mu.reference_phantom_values_directory(),
@@ -600,6 +791,33 @@ class ReferencePhantomDiffusionFitInit(ReferencePhantomDiffusion):
     def get_adc_concentration_roi_map():
         return ReferencePhantomDiffusion1.get_adc_concentration_roi_map()
 
+class ReferencePhantomEurospinRelaxometryFitInit(ReferencePhantomEurospinRelaxometry):
+    def __init__(self, field_strength, temperature=None):
+        eurospin_relax_phantom_dir = os.path.join(mu.reference_phantom_values_directory(),
+                                                  "eurospin_relaxometry_phantom")
+        mu.log("ReferencePhantomEurospinRelaxometryFitInit::__init__() [%0.1f T, %s deg. celsius]" % (field_strength, temperature),
+               LogLevels.LOG_INFO)
+        t1_reference_file = None
+        t2_reference_file = None
+        if mu.isclose(field_strength, 1.5, abs_tol=0.01):
+            t1_reference_file = os.path.join(eurospin_relax_phantom_dir, "T1_1p5T_curve_fit_init.csv")
+            t2_reference_file = os.path.join(eurospin_relax_phantom_dir, "T2_1p5T_curve_fit_init.csv")
+        elif mu.isclose(field_strength, 3.0, abs_tol=0.01):
+            mu.log("ReferencePhantomEurospinRelaxometryFitInit::__init__(): 3T values not available for this phantom yet! Contact Developers", LogLevels.LOG_ERROR)
+            assert False
+            #t1_reference_file = os.path.join(eurospin_relax_phantom_dir, "T1_3T_curve_fit_init.csv")
+            #t2_reference_file = os.path.join(eurospin_relax_phantom_dir, "T2_3T_curve_fit_init.csv")
+        super().__init__(PhantomOptions.RELAXOMETRY_PHANTOM_EUROSPIN_BATCH1, field_strength,
+                         t1_reference_file, t2_reference_file,
+                         self.get_t1_concentration_roi_map(),
+                         self.get_t2_concentration_roi_map(),
+                         temperature)
+    @staticmethod
+    def get_t1_concentration_roi_map():
+        return ReferencePhantomEurospinRelaxometry1.get_t1_concentration_roi_map()
+    @staticmethod
+    def get_t2_concentration_roi_map():
+        return ReferencePhantomEurospinRelaxometry1.get_t2_concentration_roi_map()
 
 
 if __name__ == "__main__":

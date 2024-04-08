@@ -1110,6 +1110,40 @@ class DiffusionSessionSiemensSkyra(DiffusionSessionAbstract):
         df_2D_psn = df_2D_thick.sort_values(["DiffusionBValue"])
         return df_2D_psn.index
 
+class SystemSessionAVLPhilipsMarlinNoGeo(SystemSessionAbstract):
+    def __init__(self, dicom_dir):
+        super().__init__(dicom_dir, force_geometry_imageset=ImageCatetory.T1_VFA)
+
+    def get_geometric_series_UIDs(self):
+        return None
+
+    def get_t1_vir_series_UIDs(self):
+        df_se_2D = super().get_2D_series()
+        df_se_ir_2D = super().get_inversion_recovery_series(df_se_2D)
+        df_se_ir_2D_MIR = df_se_ir_2D[df_se_ir_2D.ImageType.str.contains("M_IR", na=False)]
+        df_se_ir_2D_MIR = df_se_ir_2D_MIR.sort_values(by=["InversionTime"])
+        return df_se_ir_2D_MIR.index
+
+    def get_t1_vfa_series_UIDs(self):
+        df_ge = super().get_gradient_echo_series()
+        df_ge_3D = super().get_3D_series(df_ge)
+        df_ge_3D_vfa = df_ge_3D[df_ge_3D.ImageType.str.contains("M_FFE", na=False)]
+        df_ge_3D_vfa = df_ge_3D_vfa[df_ge_3D_vfa.SeriesDescription.str.contains("tFA", na=False)]
+        df_ge_3D_vfa = df_ge_3D_vfa[df_ge_3D_vfa.SliceThickness <= 10]
+        df_ge_3D_vfa = df_ge_3D_vfa.sort_values(by=["FlipAngle"])
+        return df_ge_3D_vfa.index
+
+    def get_t2_series_UIDs(self):
+        df_se = super().get_spin_echo_series()
+        df_se_2D = super().get_2D_series(df_se)
+        return df_se_2D.index
+
+    def get_proton_density_series_UIDs(self):
+        return None
+
+    def get_t2star_series_UIDs(self):
+        return None
+
 
 class SystemSessionPhilipsIngeniaAmbitionX(SystemSessionAbstract):
     def __init__(self, dicom_dir):

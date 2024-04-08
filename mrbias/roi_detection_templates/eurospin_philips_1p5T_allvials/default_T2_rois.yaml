@@ -1,0 +1,59 @@
+t2_roi_2:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [76, 76, 5] #[39, 39, 5]
+
+t2_roi_3:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [75,  98, 5] #, 5]
+
+t2_roi_4:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [53, 32, 5] #, 5]
+
+t2_roi_6:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [97, 53, 5] #, 5]
+
+t2_roi_7:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [32, 75, 5] #, 5]
+
+t2_roi_8:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [75, 32, 5] #, 5]
+
+t2_roi_9:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [53, 53, 5] #, 5]
+
+t2_roi_11:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [75, 53, 5] #, 5]
+
+t2_roi_13:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [97, 75, 5] #, 5]
+
+t2_roi_14:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [53, 75,  5] #, 5]
+
+t2_roi_15:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [53, 97, 5] #, 5]
+
+t2_roi_17:
+  roi_type: "sphere"
+  roi_radius_mm: 5.0
+  ctr_vox_coords: [32, 53, 5] #, 5]

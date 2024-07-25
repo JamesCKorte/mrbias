@@ -20,6 +20,7 @@ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY
 Change Log:
 --------------------------------------------------------------------------------
 07-July-2023  :               (James Korte) : Initial code to help users add new scanner protocols
+27-June-2024  :               (James Korte) : Updated for refactoring of DICOMSearch into misc_utils
 """
 import os
 import numpy as np
@@ -34,7 +35,7 @@ base_dir = root
 if str(root) not in sys.path:
     sys.path.insert(1, str(root))
 # import required mrbias modules
-import mrbias.scan_session as ss
+import mrbias.misc_utils as mu
 
 
 #################################################################################
@@ -54,16 +55,21 @@ DICOM_DIRECTORY = r"I:\JK\MR-BIAS\Data_From_BenPetra\M231213A_VIRtest"
 OUTPUT_CSV_FILENAME = "dicom_metadata.csv"
 #################################################################################
 
+#################################################################################
+DICOM_DIRECTORY = r"I:\JK\MR-BIAS\EMBRACE\Petra GE Phantom Data\9999_conquestfiles\9999"
+OUTPUT_CSV_FILENAME = "dicom_metadata_GE.csv"
+#################################################################################
 
 
 
 
 # search the dicom directory and strip metadata to write in the output csv file
-scan_session = ss.DICOMSearch(target_dir=DICOM_DIRECTORY,
+scan_session = mu.DICOMSearch(target_dir=DICOM_DIRECTORY,
                               output_csv_filename=OUTPUT_CSV_FILENAME)
 
 # sort the data to show a summary to help define sorting rules
 df = pd.read_csv(OUTPUT_CSV_FILENAME)
+df.sort_values(by=["SeriesDate", "SeriesTime"], inplace=True)# SeriesDate, SeriesTime
 df_sum = df.drop_duplicates(subset=['SeriesInstanceUID', 'RescaleSlope', 'RescaleIntercept', 'ScaleSlope', 'ScaleIntercept'],
                             keep='last').reset_index(drop = True)
 dicom_summary_tag_list = ['SeriesDescription', 'ProtocolName', 'SequenceName', 'ScanningSequence', 'ScanOptions', 'SequenceVariant', 'ImageType',

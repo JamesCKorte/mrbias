@@ -82,6 +82,7 @@ class ImageSetAbstract(ABC):
         self.geometry_image = geometry_image
         self.series_instance_UIDs = series_instance_UIDs
         self.roi_image = None
+        self.roi_pmap_dict = None
         # test if all the images in the set are in the same physical space
         assert len(self.image_list) > 0, "ImageSetAbstract[%s]: has an empty image list" % self.label
         ref_im = self.image_list[0]
@@ -149,8 +150,15 @@ class ImageSetAbstract(ABC):
                 for meas_dx, image in enumerate(self.image_list):
                     image_array = sitk.GetArrayFromImage(image)
                     roi_im_data = image_array[roi_boolean_mask]
-                    #print("get_ROI_data(): data type : %s" % type(roi_im_data.flatten()[0]))
                     voxel_data[meas_dx] = roi_im_data.flatten()
+                # if ROI parameter maps exist then pull out the pmap for this ROI
+                roi_mask_pmap_dict = None
+                if self.roi_pmap_dict is not None:
+                    roi_mask_pmap_dict = OrderedDict()
+                    for pmap_name, pmap_im in self.roi_pmap_dict.items():
+                        pmap_arr = sitk.GetArrayFromImage(pmap_im)
+                        roi_mask_pmap_dict[pmap_name] = pmap_arr[roi_boolean_mask]
+
                 # instantiate a ROI object and append to return structure
                 im_set_roi = ImageSetROI(label=mu.ROI_IDX_LABEL_MAP[mask_val],
                                          voxel_data_array=voxel_data.transpose(),
@@ -158,6 +166,7 @@ class ImageSetAbstract(ABC):
                                          measurement_variable_vector=self.meas_var_list,
                                          measurement_variable_name=self.meas_var_name,
                                          measurement_variable_units=self.meas_var_units,
+                                         voxel_pmap_dict=roi_mask_pmap_dict,
                                          rescale_slope_list=self.rescale_slope_list,
                                          rescale_intercept_list=self.rescale_intercept_list,
                                          scale_slope_list=self.scale_slope_list,
@@ -197,6 +206,12 @@ class ImageSetAbstract(ABC):
                check_image_same_grid(roi_sitk_image, self.image_list[0]), LogLevels.LOG_INFO)
         self.roi_image = roi_sitk_image
 
+    def set_roi_parameter_map_dict(self, roi_pmap_dict):
+        for p, pmap in roi_pmap_dict.items():
+            mu.log("ImageSetAbstract::set_roi_parameter_map_dict(): check ROI pmap[%s] matched the ImageSet spatial grid: %s" %
+                   (p, check_image_same_grid(pmap, self.image_list[0])), LogLevels.LOG_INFO)
+        self.roi_pmap_dict = roi_pmap_dict
+
     def get_measurement_variables(self):
         return self.meas_var_list
 
@@ -208,11 +223,15 @@ class ImageSetAbstract(ABC):
 
     def _write_roi_pdf_page(self, c, sup_title=None,
                             mask_override_sitk_im=None,
-                            all_roi_values=None):
+                            all_roi_values=None,
+                            parameter_map_name=None,
+                            parameter_map=None):
         pdf = mu.PDFSettings()
         c.setFont(pdf.font_name, pdf.small_font_size)  # set to a fixed width font
         if sup_title is None:
             sup_title = "IMAGESET [%s]" % (self.get_set_label())
+        if parameter_map_name is not None:
+            sup_title = "%s (pmap = %s)" % (sup_title, parameter_map_name)
         # get some data from the image set
         image_list = self.get_images()
         base_im = image_list[0]
@@ -273,6 +292,7 @@ class ImageSetAbstract(ABC):
                           ticks=ticks)
         cb.set_ticklabels(ticklabels=ticklabels)
 
+
         # loop over the axes and plot the individual roi regions
         roi_dx = 0
         for ax_row_dx, axes_row in zip([0, 2],
@@ -310,12 +330,30 @@ class ImageSetAbstract(ABC):
                     zoom_extent = [0, zoom_arr.shape[0] * im_spacing[1],
                                    0, zoom_arr.shape[1] * im_spacing[0]]
                     roi_slice = mask_arr[c_x, extent_y_a:extent_y_b, extent_z_a:extent_z_b]
+                    # prepare the overlay data to be used (ROI label, or a parameter map)
+                    overlay_slice, vmin, vmax = None, None, None
+                    if parameter_map is not None:
+                        pmap_arr = sitk.GetArrayFromImage(parameter_map)
+                        overlay_slice = pmap_arr[c_x, extent_y_a:extent_y_b, extent_z_a:extent_z_b]
+                        if parameter_map_name == "height_dist_mm":
+                            vmin = -5.0
+                            vmax = 5.0
+                            olay_cmap = "RdYlGn"
+                        else:
+                            vmin = 0.
+                            vmax = 10.0
+                            olay_cmap = "nipy_spectral"
+                    else:
+                        overlay_slice = roi_slice
+                        vmin = np.min(all_roi_values) - 1
+                        vmax = np.max(all_roi_values) + 1
+                        olay_cmap = "nipy_spectral"
                     ax.imshow(zoom_arr,
                               extent=zoom_extent,
                               cmap='gray')
-                    ax.imshow(np.ma.masked_where(roi_slice == 0, roi_slice),
+                    ax.imshow(np.ma.masked_where(roi_slice == 0, overlay_slice),
                               extent=zoom_extent,
-                              cmap='nipy_spectral', vmin=np.min(all_roi_values) - 1, vmax=np.max(all_roi_values) + 1,
+                              cmap=olay_cmap, vmin=vmin, vmax=vmax,
                               interpolation='none',
                               alpha=0.7)
                     ax.set_xticks([])
@@ -335,9 +373,16 @@ class ImageSetAbstract(ABC):
                                           extent=zoom_extent,
                                           cmap='gray')
                             roi_slice = mask_arr[extent_x_a:extent_x_b, c_y, extent_z_a:extent_z_b]
-                            sag_ax.imshow(np.ma.masked_where(roi_slice == 0, roi_slice),
+                            # prepare the overlay data to be used (ROI label, or a parameter map)
+                            overlay_slice = None
+                            if parameter_map is not None:
+                                pmap_arr = sitk.GetArrayFromImage(parameter_map)
+                                overlay_slice = pmap_arr[extent_x_a:extent_x_b, c_y, extent_z_a:extent_z_b]
+                            else:
+                                overlay_slice = roi_slice
+                            sag_ax.imshow(np.ma.masked_where(roi_slice == 0, overlay_slice),
                                           extent=zoom_extent,
-                                          cmap='nipy_spectral', vmin=np.min(all_roi_values) - 1, vmax=np.max(all_roi_values) + 1,
+                                          cmap=olay_cmap, vmin=vmin, vmax=vmax,
                                           interpolation='none',
                                           alpha=0.7)
                             if ax_dx == 0:
@@ -375,6 +420,7 @@ class ImageSetROI(object):
     def __init__(self, label,
                  voxel_data_array, voxel_data_xyz, measurement_variable_vector,
                  measurement_variable_name, measurement_variable_units,
+                 voxel_pmap_dict = None,
                  rescale_slope_list=None, rescale_intercept_list=None,
                  scale_slope_list=None, scale_intercept_list=None,
                  bits_allocated=None, bits_stored=None,
@@ -389,6 +435,8 @@ class ImageSetROI(object):
         self.meas_var_vector = measurement_variable_vector
         self.meas_var_name = measurement_variable_name
         self.meas_var_units = measurement_variable_units
+        # for storing additional voxel information
+        self.voxel_pmap_dict = voxel_pmap_dict
         # data acquisition and scaling information
         self.rescale_slope_list = rescale_slope_list
         self.rescale_intercept_list = rescale_intercept_list
@@ -441,15 +489,17 @@ class ImageGeometric(ImageBasic):
         super().__init__(label, sitk_im, series_instance_UID,
                          bits_allocated, bits_stored,
                          rescale_slope, rescale_intercept, scale_slope, scale_intercept)
-        self.roi_mask_image_PD = None
-        self.roi_mask_image_T1 = None
-        self.roi_mask_image_T2 = None
-        self.roi_mask_image_DW = None
+        self.roi_mask_image_PD, self.roi_prop_dict_PD = None, None
+        self.roi_mask_image_T1, self.roi_prop_dict_T1 = None, None
+        self.roi_mask_image_T2, self.roi_prop_dict_T2 = None, None
+        self.roi_mask_image_DW, self.roi_prop_dict_DW = None, None
+
     def set_proton_density_mask(self, mask_sitk_image):
         assert isinstance(mask_sitk_image, sitk.Image), "ImageGeometric::set_proton_density_mask() expects a" \
                                                         "SimpleITK image"
         self.roi_mask_image_PD = mask_sitk_image
-    def set_T1_mask(self, mask_sitk_image):
+
+    def set_T1_mask(self, mask_sitk_image, mask_prop_dict):
         assert isinstance(mask_sitk_image, sitk.Image), "ImageGeometric::set_T1_mask() expects a" \
                                                         "SimpleITK image"
         # check the geom image and mask are on the same grid
@@ -459,7 +509,16 @@ class ImageGeometric(ImageBasic):
         mu.log("ImageGeometric::set_T1_mask(): detected mask value range [%d, %d]" %
                (np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
         self.roi_mask_image_T1 = mask_sitk_image
-    def set_T2_mask(self, mask_sitk_image):
+        # check the geom image and each of the parmeter maps are on the same grid
+        self.roi_prop_dict_T1 = OrderedDict()
+        for p, pmap_sitk_image in mask_prop_dict.items():
+            assert isinstance(mask_sitk_image, sitk.Image), "ImageGeometric::set_T1_mask() expects parameter map [%s] to" \
+                                                            "be a SimpleITK image" % p
+            assert check_image_same_grid(self.get_image(), pmap_sitk_image), \
+                "ImageGeometric::set_T1_mask(): parameter map [%s] image grid does not match the geometric image!" % p
+            self.roi_prop_dict_T1[p] = pmap_sitk_image
+
+    def set_T2_mask(self, mask_sitk_image, mask_prop_dict):
         assert isinstance(mask_sitk_image, sitk.Image), "ImageGeometric::set_T2_mask() expects a" \
                                                         "SimpleITK image"
         # check the geom image and mask are on the same grid
@@ -469,7 +528,16 @@ class ImageGeometric(ImageBasic):
         mu.log("ImageGeometric::set_T2_mask(): detected mask value range [%d, %d]" %
                (np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
         self.roi_mask_image_T2 = mask_sitk_image
-    def set_DW_mask(self, mask_sitk_image):
+        # check the geom image and each of the parmeter maps are on the same grid
+        self.roi_prop_dict_T2 = OrderedDict()
+        for p, pmap_sitk_image in mask_prop_dict.items():
+            assert isinstance(mask_sitk_image, sitk.Image), "ImageGeometric::set_T2_mask() expects parameter map [%s] to" \
+                                                            "be a SimpleITK image" % p
+            assert check_image_same_grid(self.get_image(), pmap_sitk_image), \
+                "ImageGeometric::set_T2_mask(): parameter map [%s] image grid does not match the geometric image!" % p
+            self.roi_prop_dict_T2[p] = pmap_sitk_image
+
+    def set_DW_mask(self, mask_sitk_image, mask_prop_dict):
         assert isinstance(mask_sitk_image, sitk.Image), "ImageGeometric::set_DW_mask() expects a" \
                                                         "SimpleITK image"
         # check the geom image and mask are on the same grid
@@ -479,6 +547,15 @@ class ImageGeometric(ImageBasic):
         mu.log("ImageGeometric::set_DW_mask(): detected mask value range [%d, %d]" %
                (np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
         self.roi_mask_image_DW = mask_sitk_image
+        # check the geom image and each of the parmeter maps are on the same grid
+        self.roi_prop_dict_DW = OrderedDict()
+        for p, pmap_sitk_image in mask_prop_dict.items():
+            assert isinstance(mask_sitk_image, sitk.Image), "ImageGeometric::set_DW_mask() expects parameter map [%s] to" \
+                                                            "be a SimpleITK image" % p
+            assert check_image_same_grid(self.get_image(), pmap_sitk_image), \
+                "ImageGeometric::set_DW_mask(): parameter map [%s] image grid does not match the geometric image!" % p
+            self.roi_prop_dict_DW[p] = pmap_sitk_image
+
     def get_T1_mask(self):
         assert self.roi_mask_image_T1 is not None, "ImageGeometric::get_T1_mask(): no mask available"
         return self.roi_mask_image_T1
@@ -488,6 +565,16 @@ class ImageGeometric(ImageBasic):
     def get_DW_mask(self):
         assert self.roi_mask_image_DW is not None, "ImageGeometric::get_DW_mask(): no mask available"
         return self.roi_mask_image_DW
+
+    def get_T1_mask_and_pmaps(self):
+        assert self.roi_prop_dict_T1 is not None, "ImageGeometric::get_T1_mask_and_pmaps(): no property map dict available"
+        return self.get_T1_mask(), self.roi_prop_dict_T1
+    def get_T2_mask_and_pmaps(self):
+        assert self.roi_prop_dict_T2 is not None, "ImageGeometric::get_T2_mask_and_pmaps(): no property map dict available"
+        return self.get_T2_mask(), self.roi_prop_dict_T2
+    def get_DW_mask_and_pmaps(self):
+        assert self.roi_prop_dict_DW is not None, "ImageGeometric::get_DW_mask_and_pmaps(): no property map dict available"
+        return self.get_DW_mask(), self.roi_prop_dict_DW
 
 
 class ImageProtonDensity(ImageBasic):
@@ -540,6 +627,10 @@ class ImageSetT1VIR(ImageSetAbstract):
         return super().get_measurement_variables()
     def set_T1_roi_mask(self, roi_sitk_image):
         super().set_roi_image(roi_sitk_image)
+    def set_T1_pmap_dict(self, roi_pmap_dict):
+        super().set_roi_parameter_map_dict(roi_pmap_dict)
+    def get_T1_pmap_dict(self):
+        return self.roi_pmap_dict
     def update_ROI_mask(self):
         if self.geometry_image is None:
             mu.log("ImageSetT1VIR::update_ROI_mask(): no geometry image set", LogLevels.LOG_WARNING)
@@ -547,24 +638,35 @@ class ImageSetT1VIR(ImageSetAbstract):
         if not (len(self.image_list) > 0):
             mu.log("ImageSetT1VIR::update_ROI_mask(): no images in set", LogLevels.LOG_WARNING)
             return None
-        # # todo: remove print once error resolved
-        # print(self.geometry_image.get_label(),
-        #       self.geometry_image.roi_mask_image_T1,
-        #       self.geometry_image.roi_mask_image_T2)
-        mask_arr = sitk.GetArrayFromImage(self.geometry_image.get_T1_mask())
+        t1_mask_im, t1_pmap_dict = self.geometry_image.get_T1_mask_and_pmaps()
+        mask_arr = sitk.GetArrayFromImage(t1_mask_im)
         mu.log("ImageSetT1VIR[%s]::update_ROI_mask() : orig mask values [%d, %d]" %
                (self.get_set_label(), np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
-        resampled_mask = sitk.Resample(self.geometry_image.get_T1_mask(),
+        resampled_mask = sitk.Resample(t1_mask_im,
                                        self.image_list[0],
                                        sitk.Euler3DTransform(), sitk.sitkNearestNeighbor)
         mask_arr = sitk.GetArrayFromImage(resampled_mask)
         mu.log("ImageSetT1VIR[%s]::update_ROI_mask() : resampled mask values [%d, %d]" %
                (self.get_set_label(), np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
         self.set_T1_roi_mask(resampled_mask)
-    def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None):
+        # resample and store any associated parameter maps
+        resampled_pmap_dict = OrderedDict()
+        for p, pmap in t1_pmap_dict.items():
+            resampled_pmap_dict[p] = sitk.Resample(pmap,
+                                                   self.image_list[0],
+                                                   sitk.Euler3DTransform(), sitk.sitkNearestNeighbor)
+        self.set_T1_pmap_dict(resampled_pmap_dict)
+
+    def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None, include_pmap_pages=False):
         self._write_roi_pdf_page(c, sup_title, mask_override_sitk_im,
                                  all_roi_values=list(T1_ROI_LABEL_IDX_MAP.values()))
-
+        t1_pmap_dict = self.get_T1_pmap_dict()
+        if include_pmap_pages and (t1_pmap_dict is not None):
+            for param_name, pmap in t1_pmap_dict.items():
+                self._write_roi_pdf_page(c, sup_title, mask_override_sitk_im,
+                                         all_roi_values=list(T1_ROI_LABEL_IDX_MAP.values()),
+                                         parameter_map_name=param_name,
+                                         parameter_map=pmap)
 
 
 class ImageSetT1VFA(ImageSetAbstract):
@@ -600,25 +702,44 @@ class ImageSetT1VFA(ImageSetAbstract):
         return super().get_measurement_variables()
     def set_T1_roi_mask(self, roi_sitk_image):
         super().set_roi_image(roi_sitk_image)
+    def set_T1_pmap_dict(self, roi_pmap_dict):
+        super().set_roi_parameter_map_dict(roi_pmap_dict)
+    def get_T1_pmap_dict(self):
+        return self.roi_pmap_dict
     def update_ROI_mask(self):
         if self.geometry_image is None:
             mu.log("ImageSetT1VFA::update_ROI_mask(): no geometry image set", LogLevels.LOG_WARNING)
         if not (len(self.image_list) > 0):
             mu.log("ImageSetT1VFA::update_ROI_mask(): no images in set", LogLevels.LOG_WARNING)
             return None
-        mask_arr = sitk.GetArrayFromImage(self.geometry_image.get_T1_mask())
+        t1_mask_im, t1_pmap_dict = self.geometry_image.get_T1_mask_and_pmaps()
+        mask_arr = sitk.GetArrayFromImage(t1_mask_im)
         mu.log("ImageSetT1VFA[%s]::update_ROI_mask() : orig mask values [%d, %d]" %
                (self.get_set_label(), np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
-        resampled_mask = sitk.Resample(self.geometry_image.get_T1_mask(),
+        resampled_mask = sitk.Resample(t1_mask_im,
                                        self.image_list[0],
                                        sitk.Euler3DTransform(), sitk.sitkNearestNeighbor)
         mask_arr = sitk.GetArrayFromImage(resampled_mask)
         mu.log("ImageSetT1VFA[%s]::update_ROI_mask() : resampled mask values [%d, %d]" %
                (self.get_set_label(), np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
         self.set_T1_roi_mask(resampled_mask)
-    def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None):
+        # resample and store any associated parameter maps
+        resampled_pmap_dict = OrderedDict()
+        for p, pmap in t1_pmap_dict.items():
+            resampled_pmap_dict[p] = sitk.Resample(pmap,
+                                                   self.image_list[0],
+                                                   sitk.Euler3DTransform(), sitk.sitkNearestNeighbor)
+        self.set_T1_pmap_dict(resampled_pmap_dict)
+    def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None, include_pmap_pages=False):
         self._write_roi_pdf_page(c, sup_title, mask_override_sitk_im,
                                  all_roi_values=list(T1_ROI_LABEL_IDX_MAP.values()))
+        t1_pmap_dict = self.get_T1_pmap_dict()
+        if include_pmap_pages and (t1_pmap_dict is not None):
+            for param_name, pmap in t1_pmap_dict.items():
+                self._write_roi_pdf_page(c, sup_title, mask_override_sitk_im,
+                                         all_roi_values=list(T1_ROI_LABEL_IDX_MAP.values()),
+                                         parameter_map_name=param_name,
+                                         parameter_map=pmap)
 
 
 class ImageSetT2MSE(ImageSetAbstract):
@@ -654,6 +775,10 @@ class ImageSetT2MSE(ImageSetAbstract):
         return super().get_measurement_variables()
     def set_T2_roi_mask(self, roi_sitk_image):
         super().set_roi_image(roi_sitk_image)
+    def set_T2_pmap_dict(self, roi_pmap_dict):
+        super().set_roi_parameter_map_dict(roi_pmap_dict)
+    def get_T2_pmap_dict(self):
+        return self.roi_pmap_dict
     def update_ROI_mask(self):
         if self.geometry_image is None:
             mu.log("ImageSetT2MSE::update_ROI_mask(): no geometry image set", LogLevels.LOG_WARNING)
@@ -661,19 +786,34 @@ class ImageSetT2MSE(ImageSetAbstract):
         if not (len(self.image_list) > 0):
             mu.log("ImageSetT2MSE::update_ROI_mask(): no images in set", LogLevels.LOG_WARNING)
             return None
-        mask_arr = sitk.GetArrayFromImage(self.geometry_image.get_T2_mask())
+        t2_mask_im, t2_pmap_dict = self.geometry_image.get_T2_mask_and_pmaps()
+        mask_arr = sitk.GetArrayFromImage(t2_mask_im)
         mu.log("ImageSetT2MSE[%s]::update_ROI_mask() : orig mask values [%d, %d]" %
                (self.get_set_label(), np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
-        resampled_mask = sitk.Resample(self.geometry_image.get_T2_mask(),
+        resampled_mask = sitk.Resample(t2_mask_im,
                                        self.image_list[0],
                                        sitk.Euler3DTransform(), sitk.sitkNearestNeighbor)
         mask_arr = sitk.GetArrayFromImage(resampled_mask)
         mu.log("ImageSetT2MSE[%s]::update_ROI_mask() : resampled mask values [%d, %d]" %
                (self.get_set_label(), np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
         self.set_T2_roi_mask(resampled_mask)
-    def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None):
+        # resample and store any associated parameter maps
+        resampled_pmap_dict = OrderedDict()
+        for p, pmap in t2_pmap_dict.items():
+            resampled_pmap_dict[p] = sitk.Resample(pmap,
+                                                   self.image_list[0],
+                                                   sitk.Euler3DTransform(), sitk.sitkNearestNeighbor)
+        self.set_T2_pmap_dict(resampled_pmap_dict)
+    def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None, include_pmap_pages=False):
         self._write_roi_pdf_page(c, sup_title, mask_override_sitk_im,
                                  all_roi_values=list(T2_ROI_LABEL_IDX_MAP.values()))
+        t2_pmap_dict = self.get_T2_pmap_dict()
+        if include_pmap_pages and (t2_pmap_dict is not None):
+            for param_name, pmap in t2_pmap_dict.items():
+                self._write_roi_pdf_page(c, sup_title, mask_override_sitk_im,
+                                         all_roi_values=list(T2_ROI_LABEL_IDX_MAP.values()),
+                                         parameter_map_name=param_name,
+                                         parameter_map=pmap)
 
 class ImageSetDW(ImageSetAbstract):
     def __init__(self,
@@ -708,6 +848,10 @@ class ImageSetDW(ImageSetAbstract):
         return super().get_measurement_variables()
     def set_dw_roi_mask(self, roi_sitk_image):
         super().set_roi_image(roi_sitk_image)
+    def set_dw_pmap_dict(self, roi_pmap_dict):
+        super().set_roi_parameter_map_dict(roi_pmap_dict)
+    def get_dw_pmap_dict(self):
+        return self.roi_pmap_dict
     def update_ROI_mask(self):
         if self.geometry_image is None:
             mu.log("ImageSetDW::update_ROI_mask(): no geometry image set", LogLevels.LOG_WARNING)
@@ -715,19 +859,34 @@ class ImageSetDW(ImageSetAbstract):
         if not (len(self.image_list) > 0):
             mu.log("ImageSetDW::update_ROI_mask(): no images in set", LogLevels.LOG_WARNING)
             return None
-        mask_arr = sitk.GetArrayFromImage(self.geometry_image.get_DW_mask())
+        dw_mask_im, dw_pmap_dict = self.geometry_image.get_DW_mask_and_pmaps()
+        mask_arr = sitk.GetArrayFromImage(dw_mask_im)
         mu.log("ImageSetDW[%s]::update_ROI_mask() : orig mask values [%d, %d]" %
                (self.get_set_label(), np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
-        resampled_mask = sitk.Resample(self.geometry_image.get_DW_mask(),
+        resampled_mask = sitk.Resample(dw_mask_im,
                                        self.image_list[0],
                                        sitk.Euler3DTransform(), sitk.sitkNearestNeighbor)
         mask_arr = sitk.GetArrayFromImage(resampled_mask)
         mu.log("ImageSetDW[%s]::update_ROI_mask() : resampled mask values [%d, %d]" %
                (self.get_set_label(), np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
         self.set_dw_roi_mask(resampled_mask)
-    def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None):
+        # resample and store any associated parameter maps
+        resampled_pmap_dict = OrderedDict()
+        for p, pmap in dw_pmap_dict.items():
+            resampled_pmap_dict[p] = sitk.Resample(pmap,
+                                                   self.image_list[0],
+                                                   sitk.Euler3DTransform(), sitk.sitkNearestNeighbor)
+        self.set_dw_pmap_dict(resampled_pmap_dict)
+    def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None, include_pmap_pages=False):
         self._write_roi_pdf_page(c, sup_title, mask_override_sitk_im,
                                  all_roi_values=list(DW_ROI_LABEL_IDX_MAP.values()))
+        dw_pmap_dict = self.get_dw_pmap_dict()
+        if include_pmap_pages and (dw_pmap_dict is not None):
+            for param_name, pmap in dw_pmap_dict.items():
+                self._write_roi_pdf_page(c, sup_title, mask_override_sitk_im,
+                                         all_roi_values=list(DW_ROI_LABEL_IDX_MAP.values()),
+                                         parameter_map_name=param_name,
+                                         parameter_map=pmap)
 
 
 
@@ -761,6 +920,10 @@ class ImageSetT2Star(ImageSetAbstract):
         return super().get_measurement_variables()
     def set_T2_roi_mask(self, roi_sitk_image):
         super().set_roi_image(roi_sitk_image)
+    def set_T2_pmap_dict(self, roi_pmap_dict):
+        super().set_roi_parameter_map_dict(roi_pmap_dict)
+    def get_T2_pmap_dict(self):
+        return self.roi_pmap_dict
     def update_ROI_mask(self):
         if self.geometry_image is None:
             mu.log("ImageSetT2Star::update_ROI_mask(): no geometry image set", LogLevels.LOG_WARNING)
@@ -768,16 +931,31 @@ class ImageSetT2Star(ImageSetAbstract):
         if not (len(self.image_list) > 0):
             mu.log("ImageSetT2Star::update_ROI_mask(): no images in set", LogLevels.LOG_WARNING)
             return None
-        mask_arr = sitk.GetArrayFromImage(self.geometry_image.get_T2_mask())
+        t2_mask_im, t2_pmap_dict = self.geometry_image.get_T2_mask_and_pmaps()
+        mask_arr = sitk.GetArrayFromImage(t2_mask_im)
         mu.log("ImageSetT2Star[%s]::update_ROI_mask() : orig mask values [%d, %d]" %
                (self.get_set_label(), np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
-        resampled_mask = sitk.Resample(self.geometry_image.get_T2_mask(),
+        resampled_mask = sitk.Resample(t2_mask_im,
                                        self.image_list[0],
                                        sitk.Euler3DTransform(), sitk.sitkNearestNeighbor)
         mask_arr = sitk.GetArrayFromImage(resampled_mask)
         mu.log("ImageSetT2Star[%s]::update_ROI_mask() : resampled mask values [%d, %d]" %
                (self.get_set_label(), np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
         self.set_T2_roi_mask(resampled_mask)
-    def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None):
-        self.__write_roi_pdf_page(c, sup_title, mask_override_sitk_im,
+        # resample and store any associated parameter maps
+        resampled_pmap_dict = OrderedDict()
+        for p, pmap in t2_pmap_dict.items():
+            resampled_pmap_dict[p] = sitk.Resample(pmap,
+                                                   self.image_list[0],
+                                                   sitk.Euler3DTransform(), sitk.sitkNearestNeighbor)
+        self.set_T2_pmap_dict(resampled_pmap_dict)
+    def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None, include_pmap_pages=False):
+        self._write_roi_pdf_page(c, sup_title, mask_override_sitk_im,
                                   all_roi_values=list(T2_ROI_LABEL_IDX_MAP.values()))
+        t2_pmap_dict = self.get_T2_pmap_dict()
+        if include_pmap_pages and (t2_pmap_dict is not None):
+            for param_name, pmap in t2_pmap_dict.items():
+                self._write_roi_pdf_page(c, sup_title, mask_override_sitk_im,
+                                         all_roi_values=list(T2_ROI_LABEL_IDX_MAP.values()),
+                                         parameter_map_name=param_name,
+                                         parameter_map=pmap)

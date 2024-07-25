@@ -81,8 +81,8 @@ def main():
     test_geometric_images = ss.get_geometric_images()
     test_hard = test_geometric_images[0]
     test_easy = test_geometric_images[1]
-    test_geo_vec = [test_hard, test_easy]
-    case_name_vec = ["large miss-alignment", "small miss-alignment"]
+    test_geo_vec = [test_easy] #[test_hard, test_easy]
+    case_name_vec = ["small miss-alignment"]#["large miss-alignment", "small miss-alignment"]
 
     # get the T1 and T2 imagesets
     t1_vir_imagesets = ss.get_t1_vir_image_sets()
@@ -105,13 +105,13 @@ def main():
     # for each of the image datasets show the detected ROIs
     for t1_vir_imageset in t1_vir_imagesets:
         t1_vir_imageset.update_ROI_mask()  # trigger a mask update
-        t1_vir_imageset.write_roi_pdf_page(c)
+        t1_vir_imageset.write_roi_pdf_page(c, include_pmap_pages=True)
     for t1_vfa_imageset in t1_vfa_imagesets:
         t1_vfa_imageset.update_ROI_mask()  # trigger a mask update
-        t1_vfa_imageset.write_roi_pdf_page(c)
+        t1_vfa_imageset.write_roi_pdf_page(c, include_pmap_pages=True)
     for t2_mse_imageset in t2_mse_imagesets:
         t2_mse_imageset.update_ROI_mask()  # trigger a mask update
-        t2_mse_imageset.write_roi_pdf_page(c)
+        t2_mse_imageset.write_roi_pdf_page(c, include_pmap_pages=True)
 
     # save the pdf report
     c.save()
@@ -229,7 +229,7 @@ class ROITemplate(object):
         """
         Create a template mask image of the same image grid as the template image
         Args:
-            roi_dict (OrderedDict): with a roi_idx key and values of type ROI (only supports ROISphere)
+            roi_dict (OrderedDict): with a roi_idx key and values of type ROI (supports ROISphere and ROICylinder)
         Returns:
             SimpleITK.Image: a template mask with 0 as background and ROIs with values as defined in points
         """
@@ -237,16 +237,35 @@ class ROITemplate(object):
         fixed_geo_arr = sitk.GetArrayFromImage(self.image)
         fixed_geo_spacing = np.array(self.image.GetSpacing())
         mask_arr = np.zeros_like(fixed_geo_arr, dtype = np.uint16)
+        # Interogate ROIs to see what property maps are available, then create empty maps to be filled
+        prop_list = []
+        for roi_dx, roi in roi_dict.items():
+            for p in roi.properties:
+                if not (p in prop_list):
+                    prop_list.append(p)
+        prop_map_dict = OrderedDict()
+        for p in prop_list:
+            prop_map_dict[p] = np.zeros_like(fixed_geo_arr, dtype=float)
+        # Get each ROI to fill in its information in the mask array, and the property maps
         for roi_dx, roi in roi_dict.items():
             # rely on the concrete class to draw its own ROI on the mask image
-            roi.draw(mask_arr, fixed_geo_spacing)
+            roi.draw(mask_arr, fixed_geo_spacing, prop_map_dict)
         # Convert the roi mask array to a simpleITK image with matched spatial properties to the
         # fixed geometric image
         masked_image = sitk.GetImageFromArray(mask_arr)
         masked_image.SetOrigin(self.image.GetOrigin())
         masked_image.SetDirection(self.image.GetDirection())
         masked_image.SetSpacing(self.image.GetSpacing())
-        return masked_image
+        # Convert each of the property maps to a simpleITK image with matched spatial properties
+        # to the fixed geometric image
+        prop_image_dict = OrderedDict()
+        for p, arr in prop_map_dict.items():
+            prop_image = sitk.GetImageFromArray(arr)
+            prop_image.SetOrigin(self.image.GetOrigin())
+            prop_image.SetDirection(self.image.GetDirection())
+            prop_image.SetSpacing(self.image.GetSpacing())
+            prop_image_dict[p] = prop_image
+        return masked_image, prop_image_dict
 
     def get_t1_slice_dx(self):
         slice_vec = []
@@ -278,13 +297,20 @@ class ROI(ABC):
     def __init__(self, label, roi_index):
         self.label = label
         self.roi_index = roi_index
+        self.properties = []
         assert self.roi_index in ROI_IDX_LABEL_MAP.keys(), "ROI::__init__: roi index is invalid, idx=%d" % self.roi_index
 
     """
-    Draw the ROI into the passes mask array, marking the ROI with the global ROI index
+    Draw the ROI into the passed mask array, marking the ROI with the global ROI index
+    - also generate template coordinates to associate with each point in space, to
+      allow the analysis of variation across the ROI (i.e. from the centre to the perimeter)
+      
+    The function adds data to the passed lbl array
+    - additionally, there is a returned dictionary of additional properties of the ROI
+      this has [key] -> [item] = [property_name] -> [value_at_location_array]
     """
     @abstractmethod
-    def draw(self, arr, spacing):
+    def draw(self, lbl_arr, spacing, prop_map_dict=None):
         return None
 
     @abstractmethod
@@ -297,18 +323,32 @@ class ROISphere(ROI):
         super().__init__(label, roi_index)
         self.ctr_vox_coords = ctr_vox_coords
         self.radius_mm = radius_mm
+        self.properties = ['radial_dist_mm', 'height_dist_mm']
         mu.log("\t\tROISphere::__init__(): sphere (%d : %s) created!" % (roi_index, label), LogLevels.LOG_INFO)
 
-    def draw(self, arr, spacing):
+    def draw(self, lbl_arr, spacing, prop_map_dict=None):
         # calculate how many voxels to achieve the radius
         radius_vox = self.radius_mm / spacing
-        z, y, x = np.ogrid[:arr.shape[0],:arr.shape[1],:arr.shape[2]]
+        z, y, x = np.ogrid[:lbl_arr.shape[0],:lbl_arr.shape[1],:lbl_arr.shape[2]]
         # Assigns the masked pixels in the copy image array to corresponding pixel values
         distance_from_centre = np.sqrt(((x - self.ctr_vox_coords[0]) / radius_vox[0]) ** 2 +
                                        ((y - self.ctr_vox_coords[1]) / radius_vox[1]) ** 2 +
                                        ((z - self.ctr_vox_coords[2]) / radius_vox[2]) ** 2)
         sphere_mask = distance_from_centre <= 1.0
-        arr[sphere_mask] = self.roi_index
+        # assign the label to the correct spatial location
+        lbl_arr[sphere_mask] = self.roi_index
+
+        if prop_map_dict is not None:
+            # record the radial distance (in mm) relative to the centre of the ROI
+            if 'radial_dist_mm' in prop_map_dict.keys():
+                distance_from_centre_mm = np.sqrt(((x - self.ctr_vox_coords[0]) * spacing[0]) ** 2 +
+                                                  ((y - self.ctr_vox_coords[1]) * spacing[1]) ** 2 +
+                                                  ((z - self.ctr_vox_coords[2]) * spacing[2]) ** 2)
+                prop_map_dict['radial_dist_mm'][sphere_mask] = distance_from_centre_mm[sphere_mask]
+            # record the vertical position (in mm) relative to the centre of the ROI
+            if 'height_dist_mm' in prop_map_dict.keys():
+                vertical_position_mm = (z - self.ctr_vox_coords[2]) * spacing[2] + (0.0 * x) + (0.0 * y)
+                prop_map_dict['height_dist_mm'][sphere_mask] = vertical_position_mm[sphere_mask]
 
     def get_slice_dx(self):
         return self.ctr_vox_coords[2]
@@ -320,19 +360,32 @@ class ROICylinder(ROI):
         self.ctr_vox_coords = ctr_vox_coords
         self.radius_mm = radius_mm
         self.height_mm = height_mm
+        self.properties = ['radial_dist_mm', 'height_dist_mm']
         mu.log("\t\tROICylinder::__init__(): cylinder (%d : %s) created!" % (roi_index, label), LogLevels.LOG_INFO)
 
-    def draw(self, arr, spacing):
+    def draw(self, lbl_arr, spacing, prop_map_dict=None):
         # calculate how many voxels to achieve the radius
         radius_vox = self.radius_mm / spacing
-        height_vox = self.height_mm / spacing
-        z, y, x = np.ogrid[:arr.shape[0],:arr.shape[1],:arr.shape[2]]
+        height_vox = self.height_mm / spacing[2]
+        z, y, x = np.ogrid[:lbl_arr.shape[0],:lbl_arr.shape[1],:lbl_arr.shape[2]]
         # Assigns the masked pixels in the copy image array to corresponding pixel values
         distance_from_centre = np.sqrt(((x - self.ctr_vox_coords[0]) / radius_vox[0]) ** 2 +
                                        ((y - self.ctr_vox_coords[1]) / radius_vox[1]) ** 2)
-        vertical_height = np.abs((z - self.ctr_vox_coords[2]) / height_vox[0])
-        sphere_mask = (distance_from_centre <= 1.0) & (vertical_height <= 1.0)
-        arr[sphere_mask] = self.roi_index
+        vertical_height_abs = np.abs((z - self.ctr_vox_coords[2]) / (height_vox/2.))
+        cylinder_mask = (distance_from_centre <= 1.0) & (vertical_height_abs <= 1.0)
+        # assign the label to the correct spatial location
+        lbl_arr[cylinder_mask] = self.roi_index
+
+        if prop_map_dict is not None:
+            # record the radial distance (in mm) relative to the centre of the ROI
+            if 'radial_dist_mm' in prop_map_dict.keys():
+                distance_from_centre_mm = np.sqrt(((x - self.ctr_vox_coords[0]) * spacing[0]) ** 2 +
+                                                  ((y - self.ctr_vox_coords[1]) * spacing[1]) ** 2) + (0.0 * z)
+                prop_map_dict['radial_dist_mm'][cylinder_mask] = distance_from_centre_mm[cylinder_mask]
+            # record the vertical position (in mm) relative to the centre of the ROI
+            if 'height_dist_mm' in prop_map_dict.keys():
+                vertical_position_mm = (z - self.ctr_vox_coords[2]) * spacing[2] + (0.0 * x) + (0.0 * y)
+                prop_map_dict['height_dist_mm'][cylinder_mask] = vertical_position_mm[cylinder_mask]
 
     def get_slice_dx(self):
         return self.ctr_vox_coords[2]
@@ -400,9 +453,12 @@ class ROIDetector(object):
         # store the transform for warping ROIs
         self.transform = transform
         # store the resulting masks on the geometric image
-        self.target_geo_im.set_T1_mask(self.get_detected_T1_mask())
-        self.target_geo_im.set_T2_mask(self.get_detected_T2_mask())
-        self.target_geo_im.set_DW_mask(self.get_detected_DW_mask())
+        t1_mask, t1_prop_dict = self.get_detected_T1_mask()
+        self.target_geo_im.set_T1_mask(t1_mask, t1_prop_dict)
+        t2_mask, t2_prop_dict = self.get_detected_T2_mask()
+        self.target_geo_im.set_T2_mask(t2_mask, t2_prop_dict)
+        dw_mask, dw_prop_dict = self.get_detected_DW_mask()
+        self.target_geo_im.set_DW_mask(dw_mask, dw_prop_dict)
 
     def get_detected_T1_mask(self):
         """
@@ -410,8 +466,13 @@ class ROIDetector(object):
             SimpleITK.Image: T1 mask in target image space, with 0 for background and 1-14 for detected ROIs
         """
         mu.log("ROIDetector::get_detected_T1_mask()", LogLevels.LOG_INFO)
-        fixed_t1_mask_im = self.get_fixed_T1_mask()
-        return self.__get_registered_mask(fixed_t1_mask_im, self.target_geo_im.get_image())
+        target_im = self.target_geo_im.get_image()
+        fixed_t1_mask_im, prop_im_dict = self.get_fixed_T1_mask()
+        detected_t1_mask_im = self.__get_registered_mask(fixed_t1_mask_im, target_im)
+        detected_prop_im_dict = OrderedDict()
+        for p, prop_im in prop_im_dict.items():
+            detected_prop_im_dict[p] = self.__get_registered_mask(prop_im, target_im)
+        return detected_t1_mask_im, detected_prop_im_dict
 
     def get_detected_T2_mask(self):
         """
@@ -419,8 +480,13 @@ class ROIDetector(object):
             SimpleITK.Image: T2 mask  in target image space, with 0 for background and 15-28 for detected ROIs
         """
         mu.log("ROIDetector::get_detected_T2_mask()", LogLevels.LOG_INFO)
-        fixed_t2_mask_im = self.get_fixed_T2_mask()
-        return self.__get_registered_mask(fixed_t2_mask_im, self.target_geo_im.get_image())
+        target_im = self.target_geo_im.get_image()
+        fixed_t2_mask_im, prop_im_dict = self.get_fixed_T2_mask()
+        detected_t2_mask_im = self.__get_registered_mask(fixed_t2_mask_im, target_im)
+        detected_prop_im_dict = OrderedDict()
+        for p, prop_im in prop_im_dict.items():
+            detected_prop_im_dict[p] = self.__get_registered_mask(prop_im, target_im)
+        return detected_t2_mask_im, detected_prop_im_dict
 
     def get_detected_DW_mask(self):
         """
@@ -428,8 +494,13 @@ class ROIDetector(object):
             SimpleITK.Image: DW mask  in target image space, with 0 for background and 29-41 for detected ROIs
         """
         mu.log("ROIDetector::get_detected_DW_mask()", LogLevels.LOG_INFO)
-        fixed_dw_mask_im = self.get_fixed_DW_mask()
-        return self.__get_registered_mask(fixed_dw_mask_im, self.target_geo_im.get_image())
+        target_im = self.target_geo_im.get_image()
+        fixed_dw_mask_im, prop_im_dict = self.get_fixed_DW_mask()
+        detected_dw_mask_im = self.__get_registered_mask(fixed_dw_mask_im, target_im)
+        detected_prop_im_dict = OrderedDict()
+        for p, prop_im in prop_im_dict.items():
+            detected_prop_im_dict[p] = self.__get_registered_mask(prop_im, target_im)
+        return detected_dw_mask_im, detected_prop_im_dict
 
     def get_fixed_T1_mask(self):
         """
@@ -457,7 +528,8 @@ class ROIDetector(object):
 
     def visualise_fixed_T1_rois(self, ax=None):
         geo_arr = sitk.GetArrayFromImage(self.fixed_geom_im)
-        roi_arr = sitk.GetArrayFromImage(self.get_fixed_T1_mask())
+        t1_fixed_im_mask, prop_im_dict = self.get_fixed_T1_mask()
+        roi_arr = sitk.GetArrayFromImage(t1_fixed_im_mask)
         t1_slice_dx = self.roi_template.get_t1_slice_dx()
         t1_roi_values = list(T1_ROI_LABEL_IDX_MAP.values())#self.roi_template.get_t1_roi_values()
         self.__visualise_rois(geo_arr, roi_arr, t1_slice_dx, t1_roi_values, ax,
@@ -465,7 +537,8 @@ class ROIDetector(object):
 
     def visualise_fixed_T2_rois(self, ax=None):
         geo_arr = sitk.GetArrayFromImage(self.fixed_geom_im)
-        roi_arr = sitk.GetArrayFromImage(self.get_fixed_T2_mask())
+        t2_fixed_im_mask, prop_im_dict = self.get_fixed_T2_mask()
+        roi_arr = sitk.GetArrayFromImage(t2_fixed_im_mask)
         t2_slice_dx = self.roi_template.get_t2_slice_dx()
         t2_roi_values = list(T2_ROI_LABEL_IDX_MAP.values())#self.roi_template.get_t2_roi_values()
         self.__visualise_rois(geo_arr, roi_arr, t2_slice_dx, t2_roi_values, ax,
@@ -473,7 +546,8 @@ class ROIDetector(object):
 
     def visualise_fixed_DW_rois(self, ax=None):
         geo_arr = sitk.GetArrayFromImage(self.fixed_geom_im)
-        roi_arr = sitk.GetArrayFromImage(self.get_fixed_DW_mask())
+        dw_fixed_im_mask, prop_im_dict = self.get_fixed_DW_mask()
+        roi_arr = sitk.GetArrayFromImage(dw_fixed_im_mask)
         dw_slice_dx = self.roi_template.get_dw_slice_dx()
         dw_roi_values = list(DW_ROI_LABEL_IDX_MAP.values())#self.roi_template.get_dw_roi_values()
         self.__visualise_rois(geo_arr, roi_arr, dw_slice_dx, dw_roi_values, ax,
@@ -481,21 +555,24 @@ class ROIDetector(object):
 
     def visualise_detected_T1_rois(self, ax=None):
         t1_roi_values = list(T1_ROI_LABEL_IDX_MAP.values()) # self.roi_template.get_t1_roi_values()
-        self.__visualise_transformed_rois(self.get_detected_T1_mask(),
+        t1_mask, t1_prop_dict = self.get_detected_T1_mask()
+        self.__visualise_transformed_rois(t1_mask,
                                           self.roi_template.get_t1_slice_dx(),
                                           t1_roi_values, ax,
                                           title="T1 (detected)")
 
     def visualise_detected_T2_rois(self, ax=None):
         t2_roi_values = list(T2_ROI_LABEL_IDX_MAP.values()) # self.roi_template.get_t2_roi_values()
-        self.__visualise_transformed_rois(self.get_detected_T2_mask(),
+        t2_mask, t2_prop_dict = self.get_detected_T2_mask()
+        self.__visualise_transformed_rois(t2_mask,
                                           self.roi_template.get_t2_slice_dx(),
                                           t2_roi_values, ax,
                                           title="T2 (detected)")
 
     def visualise_detected_DW_rois(self, ax=None):
         dw_roi_values = list(DW_ROI_LABEL_IDX_MAP.values()) #self.roi_template.get_dw_roi_values()
-        self.__visualise_transformed_rois(self.get_detected_DW_mask(),
+        dw_mask, dw_prop_dict = self.get_detected_DW_mask()
+        self.__visualise_transformed_rois(dw_mask,
                                           self.roi_template.get_dw_slice_dx(),
                                           dw_roi_values, ax,
                                           title="DW (detected)")

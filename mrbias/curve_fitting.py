@@ -229,16 +229,17 @@ def main():
             model_out_dir = model.get_imset_model_preproc_name()
             if not os.path.isdir(model_out_dir):
                 os.mkdir(model_out_dir)
-            model.write_data(model_out_dir)
+            model.write_data(model_out_dir, write_voxel_data=True)
             model.write_pdf_summary_pages(c, is_system=True)
 
-        for model in [test_dw_curvefit2p]: #for DWI
-            # create an output directory
-            model_out_dir = model.get_imset_model_preproc_name()
-            if not os.path.isdir(model_out_dir):
-                os.mkdir(model_out_dir)
-            model.write_data(model_out_dir)
-            model.write_pdf_summary_pages(c, is_system=False)
+        if len(dw_imagesets):
+            for model in [test_dw_curvefit2p]: #for DWI
+                # create an output directory
+                model_out_dir = model.get_imset_model_preproc_name()
+                if not os.path.isdir(model_out_dir):
+                    os.mkdir(model_out_dir)
+                model.write_data(model_out_dir, write_voxel_data=True)
+                model.write_pdf_summary_pages(c, is_system=False)
 
 
     # save the pdf report
@@ -251,12 +252,14 @@ class CurveFitROI(imset.ImageSetROI):
                  voxel_data_array, voxel_data_xyz, measurement_variable_vector,
                  measurement_variable_name, measurement_variable_units,
                  reference_value, initialisation_value, exclusion_list=None, exclusion_label=None,
+                 voxel_pmap_dict=None,
                  rescale_slope_list=None, rescale_intercept_list=None,
                  scale_slope_list=None, scale_intercept_list=None,
                  bits_allocated=None, bits_stored=None,
                  scanner_make=None):
         super().__init__(label, voxel_data_array, voxel_data_xyz, measurement_variable_vector,
                          measurement_variable_name, measurement_variable_units,
+                         voxel_pmap_dict=voxel_pmap_dict,
                          rescale_slope_list=rescale_slope_list, rescale_intercept_list=rescale_intercept_list,
                          scale_slope_list=scale_slope_list, scale_intercept_list=scale_intercept_list,
                          bits_allocated=bits_allocated, bits_stored=bits_stored,
@@ -503,6 +506,8 @@ class CurveFitROI(imset.ImageSetROI):
         col_names.append("Preprocessing")
         col_names.append("ModelName")
         col_names.append("ImageSetLabel")
+        for param_name in self.voxel_pmap_dict.keys():
+            col_names.append(param_name)
         return col_names
 
     def add_voxel_data_to_df(self, df, cf_model):
@@ -510,6 +515,11 @@ class CurveFitROI(imset.ImageSetROI):
         include_meas_vals = self.get_measurement_series()
         exclude_meas_vals = self.get_excluded_measurement_series()
         for vox_dx in range(self.get_number_fit_voxels()):
+            # pull out the parameter maps for the current voxel
+            vox_pmap_dict = OrderedDict()
+            for param_name, param_arr in self.voxel_pmap_dict.items():
+                vox_pmap_dict[param_name] = param_arr[vox_dx]
+            # loop over the measurement series
             for meas_vals, vox_series, is_included in zip([include_meas_vals, exclude_meas_vals],
                                                           [self.get_voxel_series(vox_dx), self.get_excluded_voxel_series(vox_dx)],
                                                           [True, False]):
@@ -537,6 +547,9 @@ class CurveFitROI(imset.ImageSetROI):
                     vox_meas_list.append(cf_model.get_preproc_name())
                     vox_meas_list.append(cf_model.get_model_name())
                     vox_meas_list.append(cf_model.get_imageset_name())
+                    # append on the parameter map variables for this voxel
+                    for param_name, param_arr in vox_pmap_dict.items():
+                        vox_meas_list.append(param_arr)
                     # append the row to the datalist
                     data_list.append(vox_meas_list)
         # create the ROI dataframe and append it to the passed dataframe
@@ -765,6 +778,7 @@ class CurveFitAbstract(ABC):
             init_roi = self.initialisation_phantom.get_roi(im_roi.label)
             voxel_data_arr = im_roi.voxel_data_array
             voxel_xyz_arr = im_roi.voxel_data_xyz
+            voxel_pmap_dict = im_roi.voxel_pmap_dict
             # use only a central slice if 2D ROI is configured
             if self.use_2D_roi:
                 mu.log("CurveFit(%s)::__init__(): adding the 2D region only ..." % self.get_model_name(),
@@ -785,6 +799,15 @@ class CurveFitAbstract(ABC):
                         voxel_z_arr.append(z)
                 voxel_data_arr = np.array(voxel_data_arr)
                 voxel_xyz_arr = (voxel_x_arr, voxel_y_arr, voxel_z_arr)
+                # handle 2D for the pmaps also
+                voxel_pmap_dict = OrderedDict()
+                for pmap_name, pmap_arr in im_roi.voxel_pmap_dict.items():
+                    pmap_2D_arr = []
+                    for pmap_data, x in zip(pmap_arr,
+                                            im_roi.voxel_data_xyz[0]):
+                        if x in centre_dx_list:
+                            pmap_2D_arr.append(pmap_data)
+                    voxel_pmap_dict[pmap_name] = np.array(pmap_2D_arr)
             # - link it with a reference and initialisation value
             cf_roi = CurveFitROI(label=im_roi.label,
                                  voxel_data_array=voxel_data_arr,
@@ -796,6 +819,7 @@ class CurveFitAbstract(ABC):
                                  initialisation_value=init_roi.value,
                                  exclusion_list=exclusion_list,
                                  exclusion_label=exclusion_label,
+                                 voxel_pmap_dict=voxel_pmap_dict,
                                  rescale_slope_list=im_roi.rescale_slope_list,
                                  rescale_intercept_list=im_roi.rescale_intercept_list,
                                  scale_slope_list=im_roi.scale_slope_list,

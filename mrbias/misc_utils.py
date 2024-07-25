@@ -449,6 +449,10 @@ class DICOMSearch(object):
         dicom_data = []
         column_meta_names = ['ImageFilePath', 'ImageType', 'PatientName', 'PatientID', 'PatientBirthDate', 'PatientSex',
                              'StudyDate', 'StudyTime', 'StudyDescription', 'StudyInstanceUID',
+                             'SOPInstanceUID', # First step towards linking Derived images such as ADC maps
+                                               # - step one - look in "ImageType" and if there is "DERIVED", then,
+                                               # - match the "ReferencedSOPInstanceUID" in the derived image (this will be inside a sequence object)
+                                               # - and match to the "SOPInstanceUID" in the primary image
                              'InstitutionName', 'InstitutionAddress', 'InstitutionalDepartmentName',
                              'Modality', 'Manufacturer', 'ManufacturerModelName', 'DeviceSerialNumber',
                              'SeriesDate', 'SeriesTime', 'SeriesDescription', 'ProtocolName',

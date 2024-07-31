@@ -25,6 +25,7 @@ Change Log:
 """
 
 import os
+import copy
 from enum import IntEnum
 from collections import OrderedDict
 from abc import ABC, abstractmethod
@@ -433,18 +434,10 @@ class ROIDetector(object):
 
     def detect(self):
         """ Detect the ROIs on the target image, by registering the target image to template image."""
-        # create relevant registration class
-        # rego = None
-        # if self.reg_method == RegistrationOptions.COREL_GRADIENTDESCENT:
-        #     rego = RegistrationCorrelationGradientDescent(self.fixed_geom_im, self.target_geo_im)
-        # elif self.reg_method == RegistrationOptions.MSME_GRIDSEARCH:
-        #     rego = RegistrationMSMEGridSearch(self.fixed_geom_im, self.target_geo_im)
-        # assert rego is not None, "ROIDetector::detect(): invalid registration method, %s" % str(self.reg_method)
         rego = RegistrationMethodAbstract.generate_registration_instance(self.reg_method,
                                                                          self.fixed_geom_im,
                                                                          self.target_geo_im.get_image(),
                                                                          self.partial_fov)
-
         mu.log("ROIDetector::detect():",
                LogLevels.LOG_INFO)
         mu.log("\t Iteration |   Metric   |   Optimizer Position",
@@ -459,6 +452,30 @@ class ROIDetector(object):
         self.target_geo_im.set_T2_mask(t2_mask, t2_prop_dict)
         dw_mask, dw_prop_dict = self.get_detected_DW_mask()
         self.target_geo_im.set_DW_mask(dw_mask, dw_prop_dict)
+
+    def copy_registration(self, d):
+        assert issubclass(type(d), ROIDetector), \
+            "ROIDetector::copy_registration(d): d (the ROI detector being copied from) is expected as type ROIDetector (not %s)" % \
+            type(d)
+        # copy the transform from the passed ROI detector
+        #self.transform = copy.deepcopy(d.transform) # cant deepcopy a pyswig object
+        self.transform = None
+        if isinstance(d.transform, sitk.Euler3DTransform):
+            self.transform = sitk.Euler3DTransform(d.transform)
+        elif hasattr(sitk, "CompositeTransform") and isinstance(d.transform, sitk.CompositeTransform):
+            self.transform = sitk.CompositeTransform(d.transform)
+        elif hasattr(sitk, "Transform") and isinstance(d.transform, sitk.Transform):
+            self.transform = sitk.Transform(d.transform)
+        assert self.transform is not None, "ROIDetector::copy_registration(): " \
+                                           "unsupported sitk transform type, %s" % str(type(d.transform))
+        # store the resulting masks on the geometric image
+        t1_mask, t1_prop_dict = self.get_detected_T1_mask()
+        self.target_geo_im.set_T1_mask(t1_mask, t1_prop_dict)
+        t2_mask, t2_prop_dict = self.get_detected_T2_mask()
+        self.target_geo_im.set_T2_mask(t2_mask, t2_prop_dict)
+        dw_mask, dw_prop_dict = self.get_detected_DW_mask()
+        self.target_geo_im.set_DW_mask(dw_mask, dw_prop_dict)
+
 
     def get_detected_T1_mask(self):
         """

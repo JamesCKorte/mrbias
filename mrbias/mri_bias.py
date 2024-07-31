@@ -164,7 +164,7 @@ class MRBIAS(object):
             mu.log("Found DW: %s" % type(dw_imageset), LogLevels.LOG_INFO)
             mu.log("\t\t%s" % str(dw_imageset), LogLevels.LOG_INFO)
 
-        geometric_images_linked = set()
+        geometric_images_linked = OrderedDict() # using the ordered dictionary keys as an ordered set
         if ss is not None:
             # exclude any geometric images that are not reference in curve fit data
             mu.log("MR-BIAS::analyse(): Identify linked geometric images ...", LogLevels.LOG_INFO)
@@ -173,7 +173,7 @@ class MRBIAS(object):
                     for imageset in fit_imagesets:
                         g = imageset.get_geometry_image()
                         if g.get_label() == geometric_image.get_label():
-                            geometric_images_linked.add(geometric_image)
+                            geometric_images_linked[geometric_image] = None
                             mu.log("\tfound geometric image (%s) linked with with imageset (%s)" %
                                    (geometric_image.get_label(), imageset.get_set_label()),
                                    LogLevels.LOG_INFO)
@@ -191,6 +191,7 @@ class MRBIAS(object):
         roi_template = self.conf.get_roi_template()
         roi_reg_method = self.conf.get_roi_registration_method()
         roi_is_partial_fov = self.conf.get_roi_registration_partial_fov()
+        roi_use_first_detection_for_all = self.conf.get_roi_use_first_detection_only()
         roi_template_dir = None
         if roi_template == "siemens_skyra_3p0T":
             roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_skyra_3p0T")
@@ -209,29 +210,41 @@ class MRBIAS(object):
             mu.log("MR-BIAS::analyse(): skipping analysis as unknown 'roi_template' defined for ROI detection",
                    LogLevels.LOG_ERROR)
             return None
-        elif not (len(geometric_images_linked) > 0):
+        elif not (len(geometric_images_linked.keys()) > 0):
             mu.log("MR-BIAS::analyse(): skipping analysis as no linked geometry imaged found for ROI detection",
                    LogLevels.LOG_ERROR)
             return None
         else:
+            # determine which detection method
+            reg_method = None
+            if roi_reg_method == "none":
+                reg_method = roi_detect.RegistrationOptions.NONE
+            elif roi_reg_method == "two_stage_msme-GS_correl-GD":
+                reg_method = roi_detect.RegistrationOptions.TWOSTAGE_MSMEGS_CORELGD
+            elif roi_reg_method == "mattesMI-GD":
+                reg_method = roi_detect.RegistrationOptions.MMI_GRADIENTDESCENT
+            elif roi_reg_method == "correl-GD":
+                reg_method = roi_detect.RegistrationOptions.COREL_GRADIENTDESCENT
+            assert reg_method is not None, "MR-BIAS::analyse(): invalid ROI registration method selected - please check your configuration file"
+
             roi_detectors = OrderedDict()
-            for geom_image in geometric_images_linked:
+            first_geo_im, first_detector  = None, None
+            for g_dx, geom_image in enumerate(geometric_images_linked.keys()):
                 # create a roi detector
-                reg_method = None
-                if roi_reg_method == "none":
-                    reg_method = roi_detect.RegistrationOptions.NONE
-                elif roi_reg_method == "two_stage_msme-GS_correl-GD":
-                    reg_method = roi_detect.RegistrationOptions.TWOSTAGE_MSMEGS_CORELGD
-                elif roi_reg_method == "mattesMI-GD":
-                    reg_method = roi_detect.RegistrationOptions.MMI_GRADIENTDESCENT
-                elif roi_reg_method == "correl-GD":
-                    reg_method = roi_detect.RegistrationOptions.COREL_GRADIENTDESCENT
-                assert reg_method is not None, "MR-BIAS::analyse(): invalid ROI registration method selected - please check your configuration file"
                 roi_detector = roi_detect.ROIDetector(geom_image, roi_template_dir,
                                                       registration_method=reg_method,
                                                       partial_fov=roi_is_partial_fov)
-                # detect the ROIs and store the masks on the target image
-                roi_detector.detect()
+                if g_dx == 0:
+                    first_geo_im = geom_image
+                    first_detector = roi_detector
+                if roi_use_first_detection_for_all and (g_dx > 0):
+                    mu.log("MR-BIAS::analyse() : ROI detection from %s being copied to %s ..." %
+                           (first_geo_im.label, geom_image.label),
+                           LogLevels.LOG_INFO)
+                    roi_detector.copy_registration(first_detector)
+                else:
+                    # detect the ROIs and store the masks on the target image
+                    roi_detector.detect()
                 # add a summary page to the PDF
                 roi_detector.write_pdf_summary_page(c)
                 # store detector
@@ -764,6 +777,17 @@ class MRIBIASConfiguration(object):
         # not found, return a default value
         default_value = False
         mu.log("MR-BIASConfiguration::get_roi_registration_partial_fov(): not found in configuration file, using default value : %s" % default_value, LogLevels.LOG_WARNING)
+        return default_value
+
+    def get_roi_use_first_detection_only(self):
+        detect_config = self.__get_roi_detection_config()
+        if detect_config is not None:
+            if "use_first_detection_only" in detect_config.keys():
+                x = detect_config["use_first_detection_only"]
+                return x
+        # not found, return a default value
+        default_value = False
+        mu.log("MR-BIASConfiguration::get_roi_use_first_detection_only(): not found in configuration file, using default value : %s" % default_value, LogLevels.LOG_WARNING)
         return default_value
 
 

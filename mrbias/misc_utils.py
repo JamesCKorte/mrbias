@@ -260,8 +260,8 @@ def load_image_from_filelist(files_sorted, series_uid,
             "Scale[%s]/Intercept[%s] not floats" % (str(rescale_slope), str(rescale_intercept))
         if np.isnan(rescale_slope) or np.isnan(rescale_intercept) or \
                 (rescale_slope is None) or (rescale_intercept is None):
-            log("ScanSession::_load_image_from_filelist(): Scale[%s]/Intercept[%s] are invalid"
-                " setting them to [m=1.0, c=0.0]" % (str(rescale_slope), str(rescale_intercept)),
+            log("ScanSession::_load_image_from_filelist(%s): Scale[%s]/Intercept[%s] are invalid"
+                " setting them to [m=1.0, c=0.0]" % (series_descrp, str(rescale_slope), str(rescale_intercept)),
                 LogLevels.LOG_WARNING)
             rescale_slope = 1.0
             rescale_intercept = 0.0
@@ -449,10 +449,7 @@ class DICOMSearch(object):
         dicom_data = []
         column_meta_names = ['ImageFilePath', 'ImageType', 'PatientName', 'PatientID', 'PatientBirthDate', 'PatientSex',
                              'StudyDate', 'StudyTime', 'StudyDescription', 'StudyInstanceUID',
-                             'SOPInstanceUID', # First step towards linking Derived images such as ADC maps
-                                               # - step one - look in "ImageType" and if there is "DERIVED", then,
-                                               # - match the "ReferencedSOPInstanceUID" in the derived image (this will be inside a sequence object)
-                                               # - and match to the "SOPInstanceUID" in the primary image
+                             'SOPInstanceUID',
                              'InstitutionName', 'InstitutionAddress', 'InstitutionalDepartmentName',
                              'Modality', 'Manufacturer', 'ManufacturerModelName', 'DeviceSerialNumber',
                              'SeriesDate', 'SeriesTime', 'SeriesDescription', 'ProtocolName',
@@ -518,6 +515,7 @@ class DICOMSearch(object):
                                 #     for d in available_tags:
                                 #         print("----> ", d, "  : ",  ds[d])
                                 #     assert False
+                # append the row and move onto the next
                 dicom_data.append(data_row)
             # log any warnings or info for this image
             log_buffer(log_info_vec, 95, LogLevels.LOG_INFO)
@@ -525,6 +523,7 @@ class DICOMSearch(object):
         # Creating the DICOM Dataframe
         df = pd.DataFrame(dicom_data,
                           columns=column_meta_names)
+
         # todo: remove this hack to make datafrome uniform by saving to disk (un-necessary disk write)
         #     : this converts columns that include lists get converted to strings etc.
         #     : the original abstract_scan object took a pandas CSV as input

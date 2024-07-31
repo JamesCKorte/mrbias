@@ -53,6 +53,66 @@ def check_image_same_grid(im_a, im_b):
            (spacing_check, origin_check, direction_check), LogLevels.LOG_INFO)
     return spacing_check and origin_check and direction_check
 
+# a class for a derived parameter map (i.e. an inline ADC map)
+class ParameterMapAbstract(ABC):
+    def __init__(self,
+                 map_label,
+                 sitk_im,
+                 parameter_name,
+                 parameter_units,
+                 series_instance_UID,
+                 reference_imageset_label,
+                 bits_allocated=None, bits_stored=None,
+                 rescale_slope=None, rescale_intercept=None,
+                 scale_slope=None, scale_intercept=None,
+                 date_acquired=None, time_acquired=None):
+        self.label = map_label
+        self.sitk_im = sitk_im
+        # Parameter map details
+        self.parameter_name = parameter_name
+        self.parameter_units = parameter_units
+        # Image details
+        self.series_instance_UID = series_instance_UID
+        # The reference imageset lable (from which it was derived)
+        self.reference_imageset_label = reference_imageset_label
+        # Time/date
+        self.date = date_acquired
+        self.time = time_acquired
+        # Image Scaling Details
+        self.rescale_slope = rescale_slope
+        self.rescale_intercept = rescale_intercept
+        self.scale_slope = scale_slope
+        self.scale_intercept = scale_intercept
+        self.bits_allocated = bits_allocated
+        self.bits_stored = bits_stored
+    def resample_to_match_image(self, sitk_im, interpol=sitk.sitkLinear):
+        self.sitk_im = sitk.Resample(self.sitk_im, sitk_im,
+                                     sitk.Euler3DTransform(), interpol)
+    def __str__(self):
+        return "%s (image=[size%s%s], SeriesUID=%s)" % (self.label, str(sitk.GetArrayFromImage(self.sitk_im).shape),
+                                                        type(self.sitk_im), self.series_instance_UID)
+
+class ADCMap(ParameterMapAbstract):
+    def __init__(self,
+                 map_label,
+                 sitk_im,
+                 series_instance_UID,
+                 reference_imageset_label,
+                 bits_allocated=None, bits_stored=None,
+                 rescale_slope=None, rescale_intercept=None,
+                 scale_slope=None, scale_intercept=None,
+                 date_acquired=None, time_acquired=None):
+        super().__init__(map_label,
+                         sitk_im,
+                         parameter_name="ADC",
+                         parameter_units="s/um^2",
+                         series_instance_UID=series_instance_UID,
+                         reference_imageset_label=reference_imageset_label,
+                         bits_allocated=bits_allocated, bits_stored=bits_stored,
+                         rescale_slope=rescale_slope, rescale_intercept=rescale_intercept,
+                         scale_slope=scale_slope, scale_intercept=scale_intercept,
+                         date_acquired=date_acquired, time_acquired=time_acquired)
+
 
 # a class to bundle together multiple images
 # their associated variable of interest (from DICOM tags)
@@ -83,6 +143,7 @@ class ImageSetAbstract(ABC):
         self.series_instance_UIDs = series_instance_UIDs
         self.roi_image = None
         self.roi_pmap_dict = None
+        self.derived_pmap_list = None # this is for derived parameter maps which are calculated on the MRI scanner such as ADC maps
         # test if all the images in the set are in the same physical space
         assert len(self.image_list) > 0, "ImageSetAbstract[%s]: has an empty image list" % self.label
         ref_im = self.image_list[0]
@@ -118,7 +179,15 @@ class ImageSetAbstract(ABC):
                                                                            str(sitk.GetArrayFromImage(im).shape), type(im), suid)
         # and the reference geometry
         if self.geometry_image is not None:
-            r_str = "%s\n\t\t\tReferenced Geometry: %s" % (r_str, str(self.geometry_image))
+            r_str = "%s\n\t\t\tReferenced Geometry: \n\t\t\t\t\t%s" % (r_str, str(self.geometry_image))
+        else:
+            r_str = "%s\n\t\t\tReferenced Geometry: \n\t\t\t\t\tnone" % (r_str)
+
+        # and any linked parameter maps
+        if self.derived_pmap_list is not None:
+            r_str = "%s\n\t\t\tDerived parameter maps:" % (r_str)
+            for pmap in self.derived_pmap_list:
+                r_str = "%s\n\t\t\t\t\t%s" % (r_str, str(pmap))
         return r_str
 
     def get_ROI_data(self):
@@ -158,6 +227,16 @@ class ImageSetAbstract(ABC):
                     for pmap_name, pmap_im in self.roi_pmap_dict.items():
                         pmap_arr = sitk.GetArrayFromImage(pmap_im)
                         roi_mask_pmap_dict[pmap_name] = pmap_arr[roi_boolean_mask]
+                # if derived parameter maps (i.e. ADC maps) exist, then pull out the map for this ROI
+                derived_map_dict = None
+                if self.derived_pmap_list is not None:
+                    derived_map_dict = OrderedDict()
+                    for pmap in self.derived_pmap_list:
+                        pmap_arr = sitk.GetArrayFromImage(pmap.sitk_im)
+                        derived_map_dict[pmap.label] = (pmap_arr[roi_boolean_mask],
+                                                        pmap.parameter_name,
+                                                        pmap.parameter_units)
+
 
                 # instantiate a ROI object and append to return structure
                 im_set_roi = ImageSetROI(label=mu.ROI_IDX_LABEL_MAP[mask_val],
@@ -167,6 +246,7 @@ class ImageSetAbstract(ABC):
                                          measurement_variable_name=self.meas_var_name,
                                          measurement_variable_units=self.meas_var_units,
                                          voxel_pmap_dict=roi_mask_pmap_dict,
+                                         derived_map_dict=derived_map_dict,
                                          rescale_slope_list=self.rescale_slope_list,
                                          rescale_intercept_list=self.rescale_intercept_list,
                                          scale_slope_list=self.scale_slope_list,
@@ -212,6 +292,12 @@ class ImageSetAbstract(ABC):
                    (p, check_image_same_grid(pmap, self.image_list[0])), LogLevels.LOG_INFO)
         self.roi_pmap_dict = roi_pmap_dict
 
+    def resample_derived_maps(self):
+        if self.derived_pmap_list is not None:
+            resampled_derived_maps_dict = OrderedDict()
+            for pmap in self.derived_pmap_list:
+                pmap.resample_to_match_image(self.image_list[0])
+
     def get_measurement_variables(self):
         return self.meas_var_list
 
@@ -220,6 +306,13 @@ class ImageSetAbstract(ABC):
 
     def get_label_units(self):
         return self.meas_var_units
+
+    def add_derived_parameter_map(self, pmap):
+        assert issubclass(type(pmap), ParameterMapAbstract), "ImageSetAbstract::add_derived_parameter_map(): expects parmeter map of type ParameterMapAbstract not %s" % str(type(pmap))
+        if self.derived_pmap_list is None:
+            self.derived_pmap_list = [pmap]
+        else:
+            self.derived_pmap_list.append(pmap)
 
     def _write_roi_pdf_page(self, c, sup_title=None,
                             mask_override_sitk_im=None,
@@ -420,7 +513,7 @@ class ImageSetROI(object):
     def __init__(self, label,
                  voxel_data_array, voxel_data_xyz, measurement_variable_vector,
                  measurement_variable_name, measurement_variable_units,
-                 voxel_pmap_dict = None,
+                 voxel_pmap_dict = None, derived_map_dict=None,
                  rescale_slope_list=None, rescale_intercept_list=None,
                  scale_slope_list=None, scale_intercept_list=None,
                  bits_allocated=None, bits_stored=None,
@@ -437,6 +530,10 @@ class ImageSetROI(object):
         self.meas_var_units = measurement_variable_units
         # for storing additional voxel information
         self.voxel_pmap_dict = voxel_pmap_dict
+        # for storing derived maps (i.e. ADC map)
+        # - format is [key] -> (data tuple)
+        #   [map_set_label] -> [voxel_data, map_name, map_units]
+        self.derived_map_dict = derived_map_dict
         # data acquisition and scaling information
         self.rescale_slope_list = rescale_slope_list
         self.rescale_intercept_list = rescale_intercept_list
@@ -656,6 +753,8 @@ class ImageSetT1VIR(ImageSetAbstract):
                                                    self.image_list[0],
                                                    sitk.Euler3DTransform(), sitk.sitkNearestNeighbor)
         self.set_T1_pmap_dict(resampled_pmap_dict)
+        # resample and store any associated parameter maps
+        super().resample_derived_maps()
 
     def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None, include_pmap_pages=False):
         self._write_roi_pdf_page(c, sup_title, mask_override_sitk_im,
@@ -730,6 +829,8 @@ class ImageSetT1VFA(ImageSetAbstract):
                                                    self.image_list[0],
                                                    sitk.Euler3DTransform(), sitk.sitkNearestNeighbor)
         self.set_T1_pmap_dict(resampled_pmap_dict)
+        # resample and store any associated parameter maps
+        super().resample_derived_maps()
     def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None, include_pmap_pages=False):
         self._write_roi_pdf_page(c, sup_title, mask_override_sitk_im,
                                  all_roi_values=list(T1_ROI_LABEL_IDX_MAP.values()))
@@ -804,6 +905,8 @@ class ImageSetT2MSE(ImageSetAbstract):
                                                    self.image_list[0],
                                                    sitk.Euler3DTransform(), sitk.sitkNearestNeighbor)
         self.set_T2_pmap_dict(resampled_pmap_dict)
+        # resample and store any associated parameter maps
+        super().resample_derived_maps()
     def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None, include_pmap_pages=False):
         self._write_roi_pdf_page(c, sup_title, mask_override_sitk_im,
                                  all_roi_values=list(T2_ROI_LABEL_IDX_MAP.values()))
@@ -870,13 +973,17 @@ class ImageSetDW(ImageSetAbstract):
         mu.log("ImageSetDW[%s]::update_ROI_mask() : resampled mask values [%d, %d]" %
                (self.get_set_label(), np.min(mask_arr), np.max(mask_arr)), LogLevels.LOG_INFO)
         self.set_dw_roi_mask(resampled_mask)
-        # resample and store any associated parameter maps
+        # resample and store any associated ROI parameter maps (spherical/cylindrical coords.)
         resampled_pmap_dict = OrderedDict()
         for p, pmap in dw_pmap_dict.items():
             resampled_pmap_dict[p] = sitk.Resample(pmap,
                                                    self.image_list[0],
                                                    sitk.Euler3DTransform(), sitk.sitkNearestNeighbor)
         self.set_dw_pmap_dict(resampled_pmap_dict)
+        # resample and store any associated parameter maps
+        super().resample_derived_maps()
+
+
     def write_roi_pdf_page(self, c, sup_title=None, mask_override_sitk_im=None, include_pmap_pages=False):
         self._write_roi_pdf_page(c, sup_title, mask_override_sitk_im,
                                  all_roi_values=list(DW_ROI_LABEL_IDX_MAP.values()))

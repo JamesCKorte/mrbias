@@ -105,14 +105,28 @@ def main():
     c = canvas.Canvas("curve_fit.pdf", landscape(pdf.page_size))
 
 
-    # do full preparation with standard pipeline...
+    # do full preparation with standard pipeline... (SYSTEM PHANTOM)
     # -----------------------------------------------------
     # parse a dicom directory for test imaging data
     test_dcm_dir = os.path.join(mu.reference_data_directory(), "mrbias_testset_A")
     ss = scanner.SystemSessionSiemensSkyra(test_dcm_dir)
+    # Reference phantom and curve fit initialisation phantom
+    ref_phan = phantom.ReferencePhantomCalibreSystem2(field_strength=3.0,  # Tesla
+                                                      temperature=20.0,
+                                                      serial_number="130-0093")  # Celsius
+    init_phan = phantom.ReferencePhantomCalibreSystemFitInit(field_strength=3.0,  # Tesla
+                                                             temperature=20.0)  # Celsius
+    roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_skyra_3p0T")
 
-    #test_dcm_dir = os.path.join(mu.reference_data_directory(), "new_data/Intial_SystemAndDiffusionDataset/DWI_Phantom") #for DWI
-    #ss = scanner.DiffusionSessionPhilipsIngeniaAmbitionX(test_dcm_dir) #for DWI
+    # do full preparation with standard pipeline... (DIFFUSION PHANTOM)
+    # -----------------------------------------------------
+    test_dcm_dir = r"I:\JK\MR-BIAS\Data_From_Maddie\Carr2022_data\01_MONTH"
+    ss = scanner.DiffusionSessionSiemensSkyra(test_dcm_dir) #for DWI
+    ref_phan = phantom.ReferencePhantomDiffusion1(field_strength=3.0,    # Tesla
+                                                  temperature=20.0)        # Celsius
+    init_phan = phantom.ReferencePhantomDiffusionFitInit(field_strength=3.0,  # Tesla
+                                                         temperature=20.0)  # Celsius
+    roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_diffusion")
 
     # if a valid scan protocol found load up relevant image sets
     if ss is not None:
@@ -141,8 +155,6 @@ def main():
 
 
     # detect the ROIs for curve fitting
-    roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_skyra_3p0T")
-    #roi_template_dir = os.path.join(mu.reference_template_directory(), "philips_ingenia_1p5T") #for DWI
     for geom_image in geometric_images_linked:
         roi_detector = roi_detect.ROIDetector(geom_image,
                                               roi_template_dir)
@@ -153,16 +165,7 @@ def main():
 
 
 
-    # Reference phantom and curve fit initialisation phantom
-    ref_phan = phantom.ReferencePhantomCalibreSystem2(field_strength=3.0,  # Tesla
-                                                      temperature=20.0,
-                                                      serial_number="130-0093")  # Celsius
-    init_phan = phantom.ReferencePhantomCalibreSystemFitInit(field_strength=3.0,  # Tesla
-                                                             temperature=20.0)  # Celsius
-    #ref_phan = phantom.ReferencePhantomDiffusion1(field_strength=1.5,    # Tesla #for DWI
-                                                         #temperature=26.0)        # Celsius
-    #init_phan = phantom.ReferencePhantomDiffusionFitInit(field_strength=1.5,  # Tesla #for DWI
-                                                             #temperature=26.0)  # Celsius
+
     preproc_dict_a = {'normalise': NormalisationOptions.VOXEL_MAX,
                       'average': AveragingOptions.AVERAGE_ROI,
                       'exclude': ExclusionOptions.CLIPPED_VALUES}
@@ -224,16 +227,32 @@ def main():
                                                             preprocessing_options=preproc_dict)
 
         # add summary pages to PDF
-        for model in [test_t1_vfa_curvefit2p, test_t1_curvefit2p, test_t1_curvefit3p, test_t1_curvefit4p, test_t2_curvefit3p]:
-            # create an output directory
-            model_out_dir = model.get_imset_model_preproc_name()
-            if not os.path.isdir(model_out_dir):
-                os.mkdir(model_out_dir)
-            model.write_data(model_out_dir, write_voxel_data=True)
-            model.write_pdf_summary_pages(c, is_system=True)
-
+        if len(t1_vfa_imagesets):
+            for model in [test_t1_vfa_curvefit2p]:
+                # create an output directory
+                model_out_dir = model.get_imset_model_preproc_name()
+                if not os.path.isdir(model_out_dir):
+                    os.mkdir(model_out_dir)
+                model.write_data(model_out_dir, write_voxel_data=True)
+                model.write_pdf_summary_pages(c, is_system=True)
+        if len(t1_vir_imagesets):
+            for model in [test_t1_curvefit2p, test_t1_curvefit3p, test_t1_curvefit4p]:
+                # create an output directory
+                model_out_dir = model.get_imset_model_preproc_name()
+                if not os.path.isdir(model_out_dir):
+                    os.mkdir(model_out_dir)
+                model.write_data(model_out_dir, write_voxel_data=True)
+                model.write_pdf_summary_pages(c, is_system=True)
+        if len(t2_mse_imagesets):
+            for model in [test_t2_curvefit3p]:
+                # create an output directory
+                model_out_dir = model.get_imset_model_preproc_name()
+                if not os.path.isdir(model_out_dir):
+                    os.mkdir(model_out_dir)
+                model.write_data(model_out_dir, write_voxel_data=True)
+                model.write_pdf_summary_pages(c, is_system=True)
         if len(dw_imagesets):
-            for model in [test_dw_curvefit2p]: #for DWI
+            for model in [test_dw_curvefit2p]:
                 # create an output directory
                 model_out_dir = model.get_imset_model_preproc_name()
                 if not os.path.isdir(model_out_dir):
@@ -252,14 +271,14 @@ class CurveFitROI(imset.ImageSetROI):
                  voxel_data_array, voxel_data_xyz, measurement_variable_vector,
                  measurement_variable_name, measurement_variable_units,
                  reference_value, initialisation_value, exclusion_list=None, exclusion_label=None,
-                 voxel_pmap_dict=None,
+                 voxel_pmap_dict=None, derived_map_dict=None,
                  rescale_slope_list=None, rescale_intercept_list=None,
                  scale_slope_list=None, scale_intercept_list=None,
                  bits_allocated=None, bits_stored=None,
                  scanner_make=None):
         super().__init__(label, voxel_data_array, voxel_data_xyz, measurement_variable_vector,
                          measurement_variable_name, measurement_variable_units,
-                         voxel_pmap_dict=voxel_pmap_dict,
+                         voxel_pmap_dict=voxel_pmap_dict, derived_map_dict=derived_map_dict,
                          rescale_slope_list=rescale_slope_list, rescale_intercept_list=rescale_intercept_list,
                          scale_slope_list=scale_slope_list, scale_intercept_list=scale_intercept_list,
                          bits_allocated=bits_allocated, bits_stored=bits_stored,
@@ -506,8 +525,16 @@ class CurveFitROI(imset.ImageSetROI):
         col_names.append("Preprocessing")
         col_names.append("ModelName")
         col_names.append("ImageSetLabel")
-        for param_name in self.voxel_pmap_dict.keys():
-            col_names.append(param_name)
+        # add columns for ROI parameters (i.e. cylindrical coordinates from template)
+        if self.voxel_pmap_dict is not None:
+            for param_name in self.voxel_pmap_dict.keys():
+                col_names.append(param_name)
+        # add columns for derived maps (i.e. ADC maps)
+        if self.derived_map_dict is not None:
+            for pmap_label in self.derived_map_dict.keys():
+                col_names.append("DerivedMap_%s_type" % pmap_label)
+                col_names.append("DerivedMap_%s_value" % pmap_label)
+                col_names.append("DerivedMap_%s_unit" % pmap_label)
         return col_names
 
     def add_voxel_data_to_df(self, df, cf_model):
@@ -519,6 +546,11 @@ class CurveFitROI(imset.ImageSetROI):
             vox_pmap_dict = OrderedDict()
             for param_name, param_arr in self.voxel_pmap_dict.items():
                 vox_pmap_dict[param_name] = param_arr[vox_dx]
+            # pull out the derived map details for the current voxel
+            vox_derived_map_dict = OrderedDict()
+            if self.derived_map_dict is not None:
+                for pmap_label, (pmap_arr, pmap_name, pmap_unit) in self.derived_map_dict.items():
+                    vox_derived_map_dict[pmap_label] = (pmap_arr[vox_dx], pmap_name, pmap_unit)
             # loop over the measurement series
             for meas_vals, vox_series, is_included in zip([include_meas_vals, exclude_meas_vals],
                                                           [self.get_voxel_series(vox_dx), self.get_excluded_voxel_series(vox_dx)],
@@ -548,8 +580,13 @@ class CurveFitROI(imset.ImageSetROI):
                     vox_meas_list.append(cf_model.get_model_name())
                     vox_meas_list.append(cf_model.get_imageset_name())
                     # append on the parameter map variables for this voxel
-                    for param_name, param_arr in vox_pmap_dict.items():
-                        vox_meas_list.append(param_arr)
+                    for param_name, param_val in vox_pmap_dict.items():
+                        vox_meas_list.append(param_val)
+                    # append on the derived map data
+                    for pmap_label, (pmap_val, pmap_name, pmap_unit) in vox_derived_map_dict.items():
+                        vox_meas_list.append(pmap_name)
+                        vox_meas_list.append(pmap_val)
+                        vox_meas_list.append(pmap_unit)
                     # append the row to the datalist
                     data_list.append(vox_meas_list)
         # create the ROI dataframe and append it to the passed dataframe
@@ -779,6 +816,7 @@ class CurveFitAbstract(ABC):
             voxel_data_arr = im_roi.voxel_data_array
             voxel_xyz_arr = im_roi.voxel_data_xyz
             voxel_pmap_dict = im_roi.voxel_pmap_dict
+            derived_map_dict = im_roi.derived_map_dict
             # use only a central slice if 2D ROI is configured
             if self.use_2D_roi:
                 mu.log("CurveFit(%s)::__init__(): adding the 2D region only ..." % self.get_model_name(),
@@ -799,7 +837,7 @@ class CurveFitAbstract(ABC):
                         voxel_z_arr.append(z)
                 voxel_data_arr = np.array(voxel_data_arr)
                 voxel_xyz_arr = (voxel_x_arr, voxel_y_arr, voxel_z_arr)
-                # handle 2D for the pmaps also
+                # handle 2D for the ROI pmaps  (i.e. cylindrical coordinates)
                 voxel_pmap_dict = OrderedDict()
                 for pmap_name, pmap_arr in im_roi.voxel_pmap_dict.items():
                     pmap_2D_arr = []
@@ -808,6 +846,15 @@ class CurveFitAbstract(ABC):
                         if x in centre_dx_list:
                             pmap_2D_arr.append(pmap_data)
                     voxel_pmap_dict[pmap_name] = np.array(pmap_2D_arr)
+                # handle 2D for derived maps (i.e. ADC maps)
+                derived_map_dict = OrderedDict()
+                for pmap_label, (pmap_arr, pmap_name, pmap_units) in im_roi.derived_map_dict.items():
+                    dmap_2D_arr = []
+                    for dmap_data, x in zip(pmap_arr,
+                                            im_roi.voxel_data_xyz[0]):
+                        if x in centre_dx_list:
+                            dmap_2D_arr.append(dmap_data)
+                    derived_map_dict[pmap_label] = (np.array(dmap_2D_arr), pmap_name, pmap_units)
             # - link it with a reference and initialisation value
             cf_roi = CurveFitROI(label=im_roi.label,
                                  voxel_data_array=voxel_data_arr,
@@ -820,6 +867,7 @@ class CurveFitAbstract(ABC):
                                  exclusion_list=exclusion_list,
                                  exclusion_label=exclusion_label,
                                  voxel_pmap_dict=voxel_pmap_dict,
+                                 derived_map_dict=derived_map_dict,
                                  rescale_slope_list=im_roi.rescale_slope_list,
                                  rescale_intercept_list=im_roi.rescale_intercept_list,
                                  scale_slope_list=im_roi.scale_slope_list,

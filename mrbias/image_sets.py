@@ -429,12 +429,12 @@ class ImageSetAbstract(ABC):
                         pmap_arr = sitk.GetArrayFromImage(parameter_map)
                         overlay_slice = pmap_arr[c_x, extent_y_a:extent_y_b, extent_z_a:extent_z_b]
                         if parameter_map_name == "height_dist_mm":
-                            vmin = -5.0
-                            vmax = 5.0
+                            vmin = -20.0
+                            vmax =  20.0
                             olay_cmap = "RdYlGn"
                         else:
                             vmin = 0.
-                            vmax = 10.0
+                            vmax = 15.0
                             olay_cmap = "nipy_spectral"
                     else:
                         overlay_slice = roi_slice
@@ -444,11 +444,11 @@ class ImageSetAbstract(ABC):
                     ax.imshow(zoom_arr,
                               extent=zoom_extent,
                               cmap='gray')
-                    ax.imshow(np.ma.masked_where(roi_slice == 0, overlay_slice),
-                              extent=zoom_extent,
-                              cmap=olay_cmap, vmin=vmin, vmax=vmax,
-                              interpolation='none',
-                              alpha=0.7)
+                    roi_i = ax.imshow(np.ma.masked_where(roi_slice == 0, overlay_slice),
+                                      extent=zoom_extent,
+                                      cmap=olay_cmap, vmin=vmin, vmax=vmax,
+                                      interpolation='none',
+                                      alpha=0.7)
                     ax.set_xticks([])
                     ax.set_xticklabels([])
                     ax.set_yticks([])
@@ -495,6 +495,10 @@ class ImageSetAbstract(ABC):
                     ax.axis('off')
                     if sag_ax is not None:
                         sag_ax.axis('off')
+        # add colorbar for parameter map
+        if parameter_map is not None:
+            cb = plt.colorbar(mappable=roi_i, ax=ax_row_1b, location='bottom')
+            cb.set_label(parameter_map_name)
         # draw it on the pdf
         pil_f = mu.mplcanvas_to_pil(f)
         width, height = pil_f.size

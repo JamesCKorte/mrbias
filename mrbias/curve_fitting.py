@@ -1201,14 +1201,14 @@ class CurveFitAbstract(ABC):
         return header_str, col_names, row_fmt_str
 
 
-    def write_pdf_summary_pages(self, c, is_system):
+    def write_pdf_summary_pages(self, c, is_system, include_pmap_pages=False):
         if self.rois_found:
             self.write_pdf_fit_table_page(c)
-            self.write_pdf_roi_page(c)
+            self.write_pdf_roi_page(c, include_pmap_pages)
             self.write_pdf_voxel_fit_page(c)
             self.write_pdf_fit_accuracy_page(c, is_system)
 
-    def write_pdf_roi_page(self, c):
+    def write_pdf_roi_page(self, c, include_pmap_pages=False):
         pdf = mu.PDFSettings()
         c.setFont(pdf.font_name, pdf.small_font_size)  # set to a fixed width font
         sup_title = "CurveFit [%s - %s] <%s>" % (self.get_model_name(),
@@ -1216,7 +1216,8 @@ class CurveFitAbstract(ABC):
                                                  self.get_imageset_name())
         # get some data from the image set
         mask_im = self.construct_mask_from_preproc_rois()
-        self.image_set.write_roi_pdf_page(c, sup_title, mask_override_sitk_im=mask_im)
+        self.image_set.write_roi_pdf_page(c, sup_title, mask_override_sitk_im=mask_im,
+                                          include_pmap_pages=include_pmap_pages)
 
     def construct_mask_from_preproc_rois(self):
         # make an empty image

@@ -1,77 +1,77 @@
 dw_roi_1:
     roi_type: "cylinder"
-    roi_radius_mm: 6.0
-    ctr_vox_coords: [129,133,16]
-    roi_height_mm: 3.0
+    roi_radius_mm: 12.0
+    ctr_vox_coords: [129,133,14]
+    roi_height_mm: 35.0
 
 dw_roi_2:
   roi_type: "cylinder"
-  roi_radius_mm: 6.0
-  ctr_vox_coords: [169,120,16]
-  roi_height_mm: 3.0
+  roi_radius_mm: 12.0
+  ctr_vox_coords: [169,120,14]
+  roi_height_mm: 35.0
 
 dw_roi_3:
   roi_type: "cylinder"
-  roi_radius_mm: 6.0
-  ctr_vox_coords: [138,91,16]
-  roi_height_mm: 3.0
+  roi_radius_mm: 12.0
+  ctr_vox_coords: [138,91,14]
+  roi_height_mm: 35.0
 
 dw_roi_4:
   roi_type: "cylinder"
-  roi_radius_mm: 6.0
-  ctr_vox_coords: [100,101,16]
-  roi_height_mm: 3.0
+  roi_radius_mm: 12.0
+  ctr_vox_coords: [100,101,14]
+  roi_height_mm: 35.0
 
 dw_roi_5:
   roi_type: "cylinder"
-  roi_radius_mm: 6.0
-  ctr_vox_coords: [90,142,16]
-  roi_height_mm: 3.0
+  roi_radius_mm: 12.0
+  ctr_vox_coords: [90,142,14]
+  roi_height_mm: 35.0
 
 dw_roi_6:
   roi_type: "cylinder"
-  roi_radius_mm: 6.0
-  ctr_vox_coords: [119,170,16]
-  roi_height_mm: 3.0
+  roi_radius_mm: 12.0
+  ctr_vox_coords: [119,170,14]
+  roi_height_mm: 35.0
 
 dw_roi_7:
   roi_type: "cylinder"
-  roi_radius_mm: 6.0
-  ctr_vox_coords: [159,159,16]
-  roi_height_mm: 3.0
+  roi_radius_mm: 12.0
+  ctr_vox_coords: [159,159,14]
+  roi_height_mm: 35.0
 
 dw_roi_8:
   roi_type: "cylinder"
-  roi_radius_mm: 6.0
-  ctr_vox_coords: [179,75,16]
-  roi_height_mm: 3.0
+  roi_radius_mm: 12.0
+  ctr_vox_coords: [179,75,14]
+  roi_height_mm: 35.0
 
 dw_roi_9:
   roi_type: "cylinder"
-  roi_radius_mm: 6.0
-  ctr_vox_coords: [110,57,16]
-  roi_height_mm: 3.0
+  roi_radius_mm: 12.0
+  ctr_vox_coords: [110,57,14]
+  roi_height_mm: 35.0
 
 dw_roi_10:
   roi_type: "cylinder"
-  roi_radius_mm: 6.0
-  ctr_vox_coords: [60,109,16]
-  roi_height_mm: 3.0
+  roi_radius_mm: 12.0
+  ctr_vox_coords: [60,109,14]
+  roi_height_mm: 35.0
 
 dw_roi_11:
   roi_type: "cylinder"
-  roi_radius_mm: 6.0
-  ctr_vox_coords: [79,178,16]
-  roi_height_mm: 3.0
+  roi_radius_mm: 12.0
+  ctr_vox_coords: [79,178,14]
+  roi_height_mm: 35.0
 
 dw_roi_12:
   roi_type: "cylinder"
-  roi_radius_mm: 6.0
-  ctr_vox_coords: [150,195,16]
-  roi_height_mm: 3.0
+  roi_radius_mm: 12.0
+  ctr_vox_coords: [150,195,14]
+  roi_height_mm: 35.0
 
 dw_roi_13:
   roi_type: "cylinder"
-  roi_radius_mm: 6.0
-  ctr_vox_coords: [199,145,16]
-  roi_height_mm: 3.0
+  roi_radius_mm: 12.0
+  ctr_vox_coords: [199,145,14]
+  roi_height_mm: 35.0

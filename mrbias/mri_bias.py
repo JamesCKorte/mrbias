@@ -331,6 +331,7 @@ class MRBIAS(object):
         # get curve fitting details from the configuration file
         # --------------------------------------------------------------------
         cf_config = MRIBiasCurveFitConfig(self.config_filename)
+        include_roi_pmap_pages = cf_config.get_include_roi_pmaps()
         cf_normal = cf_config.get_normalisation()
         cf_averaging = cf_config.get_averaging()
         cf_exclude = cf_config.get_exclude()
@@ -378,7 +379,8 @@ class MRBIAS(object):
                                                                 exclusion_label=exclusion_label)
                 if mdl is not None:
                     # add summary page to pdf
-                    mdl.write_pdf_summary_pages(c, is_system=True)
+                    mdl.write_pdf_summary_pages(c, is_system=True,
+                                                include_pmap_pages=include_roi_pmap_pages)
                     # write the data output
                     d_dir = os.path.join(out_dir, mdl.get_imset_model_preproc_name())
                     if not os.path.isdir(d_dir):
@@ -410,7 +412,8 @@ class MRBIAS(object):
                                                                 centre_offset_2D_list=centre_offset_2D_list)
                 if mdl is not None:
                     # add summary page to pdf
-                    mdl.write_pdf_summary_pages(c, is_system=True)
+                    mdl.write_pdf_summary_pages(c, is_system=True,
+                                                include_pmap_pages=include_roi_pmap_pages)
                     # write the data output
                     d_dir = os.path.join(out_dir, mdl.get_imset_model_preproc_name())
                     if not os.path.isdir(d_dir):
@@ -436,7 +439,8 @@ class MRBIAS(object):
                                                                exclusion_label=exclusion_label)
                 if mdl is not None:
                     # add summary page to pdf
-                    mdl.write_pdf_summary_pages(c, is_system=True)
+                    mdl.write_pdf_summary_pages(c, is_system=True,
+                                                include_pmap_pages=include_roi_pmap_pages)
                     # write the data output
                     d_dir = os.path.join(out_dir, mdl.get_imset_model_preproc_name())
                     if not os.path.isdir(d_dir):
@@ -454,9 +458,11 @@ class MRBIAS(object):
             # get model options from configuration file
             dw_model_list = cf_config.get_dw_models()
             use_2D_roi = cf_config.get_dw_2D_roi_setting()
-            centre_offset_2D_list = cf_config.get_dw_2D_slice_offset_list()
             if use_2D_roi:
                 mu.log("MR-BIAS::analyse() : \tDW use a 2D ROI ...", LogLevels.LOG_INFO)
+                centre_offset_2D_list = cf_config.get_dw_2D_slice_offset_list()
+            else:
+                centre_offset_2D_list = None
             for dw_model_str in dw_model_list:
                 mdl = None
                 if dw_model_str == "2_param":
@@ -469,7 +475,9 @@ class MRBIAS(object):
                     dw_2param_mdl_list.append(mdl)
                 if mdl is not None:
                     # add summary page to pdf
-                    mdl.write_pdf_summary_pages(c, is_system=False)
+                    mdl.write_pdf_summary_pages(c,
+                                                is_system=False,
+                                                include_pmap_pages=include_roi_pmap_pages)
                     # write the data output
                     d_dir = os.path.join(out_dir, mdl.get_imset_model_preproc_name())
                     if not os.path.isdir(d_dir):
@@ -873,6 +881,17 @@ class MRIBiasExperimentConfig(MRIBIASConfiguration):
 class MRIBiasCurveFitConfig(MRIBIASConfiguration):
     def __init__(self, config_filename):
         super().__init__(config_filename)
+
+    def get_include_roi_pmaps(self):
+        cf_config = super().get_curve_fitting_config()
+        if cf_config is not None:
+            if "roi_pmaps_in_pdf" in cf_config.keys():
+                return cf_config["roi_pmaps_in_pdf"]
+        # not found, return a default value
+        default_value = False
+        mu.log("MR-BIASCurveFitConfig::get_include_roi_pmaps(): not found in configuration file, "
+               "using default value : %s" % default_value, LogLevels.LOG_WARNING)
+        return default_value
 
     def get_averaging(self):
         cf_config = super().get_curve_fitting_config()

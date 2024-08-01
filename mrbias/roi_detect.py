@@ -68,6 +68,11 @@ class RegistrationOptions(IntEnum):
     TWOSTAGE_MSMEGS_CORELGD = 3
     MMI_GRADIENTDESCENT = 4
 
+class OrientationOptions(IntEnum):
+    AXI = 1
+    COR = 2
+    SAG = 2
+
 
 def main():
     # setup the logger to write to file
@@ -280,10 +285,15 @@ class ROITemplate(object):
             slice_vec.append(roi.get_slice_dx())
         return int(np.median(np.array(slice_vec)))
 
-    def get_dw_slice_dx(self):
+    def get_dw_slice_dx(self, slice_orient=OrientationOptions.AXI):
         slice_vec = []
         for roi in self.dw_roi_dict.values():
-            slice_vec.append(roi.get_slice_dx())
+            if slice_orient == OrientationOptions.AXI:
+                slice_vec.append(roi.get_slice_dx())
+            elif slice_orient == OrientationOptions.COR:
+                slice_vec.append(roi.get_cntr_cor_slice_dx())
+            elif slice_orient == OrientationOptions.SAG:
+                slice_vec.append(roi.get_cntr_sag_slice_dx())
         return int(np.median(np.array(slice_vec)))
     def get_t1_roi_values(self):
         return list(self.t1_roi_dict.keys())
@@ -316,6 +326,14 @@ class ROI(ABC):
 
     @abstractmethod
     def get_slice_dx(self):
+        return None
+
+    @abstractmethod
+    def get_cntr_cor_slice_dx(self):
+        return None
+
+    @abstractmethod
+    def get_cntr_sag_slice_dx(self):
         return None
 
 class ROISphere(ROI):
@@ -353,6 +371,10 @@ class ROISphere(ROI):
 
     def get_slice_dx(self):
         return self.ctr_vox_coords[2]
+    def get_cntr_cor_slice_dx(self):
+        return self.ctr_vox_coords[1]
+    def get_cntr_sag_slice_dx(self):
+        return self.ctr_vox_coords[0]
 
 class ROICylinder(ROI):
     def __init__(self, label, roi_index,
@@ -390,6 +412,10 @@ class ROICylinder(ROI):
 
     def get_slice_dx(self):
         return self.ctr_vox_coords[2]
+    def get_cntr_cor_slice_dx(self):
+        return self.ctr_vox_coords[1]
+    def get_cntr_sag_slice_dx(self):
+        return self.ctr_vox_coords[0]
 
 
 class ROIDetector(object):
@@ -544,54 +570,49 @@ class ROIDetector(object):
         return self.roi_template.get_DW_mask_image()
 
     def visualise_fixed_T1_rois(self, ax=None):
-        geo_arr = sitk.GetArrayFromImage(self.fixed_geom_im)
         t1_fixed_im_mask, prop_im_dict = self.get_fixed_T1_mask()
-        roi_arr = sitk.GetArrayFromImage(t1_fixed_im_mask)
         t1_slice_dx = self.roi_template.get_t1_slice_dx()
-        t1_roi_values = list(T1_ROI_LABEL_IDX_MAP.values())#self.roi_template.get_t1_roi_values()
-        self.__visualise_rois(geo_arr, roi_arr, t1_slice_dx, t1_roi_values, ax,
+        t1_roi_values = list(T1_ROI_LABEL_IDX_MAP.values())
+        self.__visualise_rois(self.fixed_geom_im, t1_fixed_im_mask, t1_slice_dx, t1_roi_values, ax=ax,
                               title="T1 (template)")
 
     def visualise_fixed_T2_rois(self, ax=None):
-        geo_arr = sitk.GetArrayFromImage(self.fixed_geom_im)
         t2_fixed_im_mask, prop_im_dict = self.get_fixed_T2_mask()
-        roi_arr = sitk.GetArrayFromImage(t2_fixed_im_mask)
         t2_slice_dx = self.roi_template.get_t2_slice_dx()
-        t2_roi_values = list(T2_ROI_LABEL_IDX_MAP.values())#self.roi_template.get_t2_roi_values()
-        self.__visualise_rois(geo_arr, roi_arr, t2_slice_dx, t2_roi_values, ax,
+        t2_roi_values = list(T2_ROI_LABEL_IDX_MAP.values())
+        self.__visualise_rois(self.fixed_geom_im, t2_fixed_im_mask, t2_slice_dx, t2_roi_values, ax=ax,
                               title="T2 (template)")
 
-    def visualise_fixed_DW_rois(self, ax=None):
-        geo_arr = sitk.GetArrayFromImage(self.fixed_geom_im)
+    def visualise_fixed_DW_rois(self, ax=None, slice_orient=OrientationOptions.AXI):
         dw_fixed_im_mask, prop_im_dict = self.get_fixed_DW_mask()
-        roi_arr = sitk.GetArrayFromImage(dw_fixed_im_mask)
-        dw_slice_dx = self.roi_template.get_dw_slice_dx()
-        dw_roi_values = list(DW_ROI_LABEL_IDX_MAP.values())#self.roi_template.get_dw_roi_values()
-        self.__visualise_rois(geo_arr, roi_arr, dw_slice_dx, dw_roi_values, ax,
+        dw_slice_dx = self.roi_template.get_dw_slice_dx(slice_orient)
+        dw_roi_values = list(DW_ROI_LABEL_IDX_MAP.values())
+        self.__visualise_rois(self.fixed_geom_im, dw_fixed_im_mask, dw_slice_dx, dw_roi_values, slice_orient, ax=ax,
                               title="DW (template)")
 
     def visualise_detected_T1_rois(self, ax=None):
-        t1_roi_values = list(T1_ROI_LABEL_IDX_MAP.values()) # self.roi_template.get_t1_roi_values()
+        t1_roi_values = list(T1_ROI_LABEL_IDX_MAP.values())
         t1_mask, t1_prop_dict = self.get_detected_T1_mask()
         self.__visualise_transformed_rois(t1_mask,
                                           self.roi_template.get_t1_slice_dx(),
-                                          t1_roi_values, ax,
+                                          t1_roi_values, ax=ax,
                                           title="T1 (detected)")
 
     def visualise_detected_T2_rois(self, ax=None):
-        t2_roi_values = list(T2_ROI_LABEL_IDX_MAP.values()) # self.roi_template.get_t2_roi_values()
+        t2_roi_values = list(T2_ROI_LABEL_IDX_MAP.values())
         t2_mask, t2_prop_dict = self.get_detected_T2_mask()
         self.__visualise_transformed_rois(t2_mask,
                                           self.roi_template.get_t2_slice_dx(),
-                                          t2_roi_values, ax,
+                                          t2_roi_values, ax=ax,
                                           title="T2 (detected)")
 
-    def visualise_detected_DW_rois(self, ax=None):
-        dw_roi_values = list(DW_ROI_LABEL_IDX_MAP.values()) #self.roi_template.get_dw_roi_values()
+    def visualise_detected_DW_rois(self, ax=None, slice_orient=OrientationOptions.AXI):
+        dw_roi_values = list(DW_ROI_LABEL_IDX_MAP.values())
         dw_mask, dw_prop_dict = self.get_detected_DW_mask()
         self.__visualise_transformed_rois(dw_mask,
-                                          self.roi_template.get_dw_slice_dx(),
-                                          dw_roi_values, ax,
+                                          self.roi_template.get_dw_slice_dx(slice_orient),
+                                          dw_roi_values, slice_orient,
+                                          ax=ax,
                                           title="DW (detected)")
 
     def visualise_T1_registration(self, pre_reg_ax=None, post_reg_ax=None, invert_moving=True):
@@ -606,39 +627,47 @@ class ROIDetector(object):
                                       invert_moving=invert_moving,
                                       title="T2")
 
-    def visualise_DW_registration(self, pre_reg_ax=None, post_reg_ax=None, invert_moving=True):
-        self.__visualise_registration(self.roi_template.get_dw_slice_dx(),
+    def visualise_DW_registration(self,
+                                  pre_reg_ax=None, post_reg_ax=None,
+                                  invert_moving=True, slice_orient=OrientationOptions.AXI):
+        self.__visualise_registration(self.roi_template.get_dw_slice_dx(slice_orient),
+                                      slice_orient=slice_orient,
                                       pre_reg_ax=pre_reg_ax, post_reg_ax=post_reg_ax,
                                       invert_moving=invert_moving,
                                       title="DW")
 
 
     # same output as log but to pdf
-    def write_pdf_summary_page(self, c, sup_title="ROI Detection: Summary"):
+    def write_pdf_summary_page(self, c, sup_title=None):
         table_width = 170
         pdf = mu.PDFSettings()
         c.setFont(pdf.font_name, pdf.small_font_size)  # set to a fixed width font
+
+        if sup_title is None:
+            sup_title = "ROI Detection: Summary <%s>" % self.target_geo_im.get_label()
 
         # draw the summary figure
         # -----------------------------------------------------------
         # setup figure
         f = None
         if self.roi_template.dw_roi_dict:
-            f, ((ax1, ax2, ax3, ax4)) = plt.subplots(1, 4)
-            if sup_title is not None:
-                f.suptitle(sup_title)
+            f, ((ax1, ax2, ax3, ax4), (ax5, ax6, ax7, ax8)) = plt.subplots(2, 4)
+            f.suptitle(sup_title)
             f.set_size_inches(14, 6)
             #draw the template rois on the template image
             self.visualise_fixed_DW_rois(ax=ax1)
+            self.visualise_fixed_DW_rois(ax=ax5, slice_orient=OrientationOptions.SAG)
             #draw the registration (pre/post)
             self.visualise_DW_registration(invert_moving=False, pre_reg_ax=ax2, post_reg_ax=ax3)
+            self.visualise_DW_registration(invert_moving=False, pre_reg_ax=ax6, post_reg_ax=ax7,
+                                           slice_orient=OrientationOptions.SAG)
             #visualise the transfromed ROI masks on the target image
             self.visualise_detected_DW_rois(ax=ax4)
+            self.visualise_detected_DW_rois(ax=ax8, slice_orient=OrientationOptions.SAG)
 
         if self.roi_template.t1_roi_dict:
             f, ((ax1, ax2, ax3, ax4), (ax5, ax6, ax7, ax8)) = plt.subplots(2, 4)
-            if sup_title is not None:
-                f.suptitle(sup_title)
+            f.suptitle(sup_title)
             f.set_size_inches(14, 6)
             # draw the template rois on the template image
             self.visualise_fixed_T1_rois(ax=ax1)
@@ -664,7 +693,8 @@ class ROIDetector(object):
 
         c.showPage()  # new page
 
-    def __visualise_registration(self, slice_dx, pre_reg_ax=None, post_reg_ax=None, invert_moving=True, title=None):
+    def __visualise_registration(self, slice_dx, slice_orient=OrientationOptions.AXI,
+                                 pre_reg_ax=None, post_reg_ax=None, invert_moving=True, title=None):
         """
         Visualise the image registration with a checkerboard of the fixed and moving images. This function creates
         two checkerboard comparisons; the first with the unregistered target image and the second with the registered
@@ -680,26 +710,6 @@ class ROIDetector(object):
         if (pre_reg_ax is None) or (post_reg_ax is None):
             f, (pre_reg_ax, post_reg_ax) = plt.subplots(1, 2)
 
-        # # fake a target geo image to be on same spatial grid as fixed_geo_im for checkerboard filter
-        # target_geo_im = sitk.GetImageFromArray(sitk.GetArrayFromImage(self.target_geo_im.get_image()))
-        # target_geo_im.SetOrigin(self.fixed_geom_im.GetOrigin())
-        # target_geo_im.SetDirection(self.fixed_geom_im.GetDirection())
-        # target_geo_im.SetSpacing(self.fixed_geom_im.GetSpacing())
-        #
-        # # define intensity limits for visualisation
-        # print("ROIDetector::__visualise_registration", sitk.GetArrayFromImage(target_geo_im).shape) # DEBUG line
-        # t1_im_slice = sitk.GetArrayFromImage(target_geo_im)[slice_dx, :, :]
-        # vmin = np.mean(t1_im_slice) - 1.0 * np.std(t1_im_slice)
-        # vmax = np.mean(t1_im_slice) + 2.0 * np.std(t1_im_slice)
-        # inversion_max = np.mean(t1_im_slice) + 2.5 * np.std(t1_im_slice)
-        #
-        # # pre-registration
-        # if invert_moving:
-        #     target_geo_im = sitk.InvertIntensity(target_geo_im, maximum=inversion_max)
-        # target_geo_im_match_type = sitk.Cast(target_geo_im, sitk.sitkUInt16)
-        # checker_im = sitk.CheckerBoard(self.fixed_geom_im, target_geo_im_match_type, [4, 4, 1])
-        # checker_arr = sitk.GetArrayFromImage(checker_im)
-
         # pre-registration
         # resample the target image and mask - onto the deformed fixed space
         # (so we can use the reference ROI slice for visualisation)
@@ -712,13 +722,30 @@ class ROIDetector(object):
         
         fixed_im_pixel_type = fixed_im.GetPixelID()
         target_pre_im_match_type = sitk.Cast(target_pre_im, fixed_im_pixel_type)
-        checker_im = sitk.CheckerBoard(fixed_im, target_pre_im_match_type, [4, 4, 1])
-        checker_arr = sitk.GetArrayFromImage(checker_im)
+        checker_im = sitk.CheckerBoard(fixed_im, target_pre_im_match_type, [4, 4, 4])
 
-        im_slice = checker_arr[slice_dx, :, :]
+        # pull out the relevant slice based on orientation
+        def get_slice_and_extent(im, dx, orient):
+            im_slice, extent = None, [0, 0, 0, 0]
+            im_arr = sitk.GetArrayFromImage(im)
+            im_spacing = np.flip(np.array(im.GetSpacing()))
+            if orient == OrientationOptions.AXI:
+                im_slice = im_arr[dx, :, :]
+                extent = [0, im_arr.shape[2] * im_spacing[2], 0, im_arr.shape[1] * im_spacing[1]]
+            elif orient == OrientationOptions.COR:
+                im_slice = im_arr[:, dx, :]
+                extent = [0, im_arr.shape[2] * im_spacing[2], 0, im_arr.shape[0] * im_spacing[0]]
+            elif orient == OrientationOptions.SAG:
+                im_slice = im_arr[:, :, dx]
+                extent = [0, im_arr.shape[1] * im_spacing[1], 0, im_arr.shape[0] * im_spacing[0]]
+            assert im_slice is not None, "ROIDetector::__visualise_registration() : " \
+                                         "expected slice_orient parameter of AXI, COR, or SAG [not %s]" % slice_orient
+            return im_slice, extent
+
+        im_slice, extent = get_slice_and_extent(checker_im, slice_dx, slice_orient)
         vmin = np.mean(im_slice) - 1.0 * np.std(im_slice)
         vmax = np.mean(im_slice) + 2.0 * np.std(im_slice)
-        pre_reg_ax.imshow(im_slice, cmap='gray', vmin=vmin, vmax=vmax)
+        pre_reg_ax.imshow(im_slice, cmap='gray', vmin=vmin, vmax=vmax, extent=extent)
 
 
         # post-registration
@@ -733,10 +760,9 @@ class ROIDetector(object):
 
         rotated_fixed_im_pixel_type = rotated_fixed_im.GetPixelID()
         target_im_match_type = sitk.Cast(target_im, rotated_fixed_im_pixel_type)
-        checker_im_reg = sitk.CheckerBoard(rotated_fixed_im, target_im_match_type, [4, 4, 1])
-        checker_arr_reg = sitk.GetArrayFromImage(checker_im_reg)
-        im_slice = checker_arr_reg[slice_dx, :, :]
-        post_reg_ax.imshow(im_slice, cmap='gray', vmin=vmin, vmax=vmax)
+        checker_im_reg = sitk.CheckerBoard(rotated_fixed_im, target_im_match_type, [4, 4, 4])
+        im_slice, extent = get_slice_and_extent(checker_im_reg, slice_dx, slice_orient)
+        post_reg_ax.imshow(im_slice, cmap='gray', vmin=vmin, vmax=vmax, extent=extent)
         for ax in [pre_reg_ax, post_reg_ax]:
             ax.axis('off')
         if title is not None:
@@ -814,6 +840,7 @@ class ROIDetector(object):
 
     def __visualise_transformed_rois(self, mask_im,
                                      slice_dx, roi_list,
+                                     slice_orient=OrientationOptions.AXI,
                                      ax=None,
                                      title=None):
         if self.transform is None:
@@ -823,39 +850,62 @@ class ROIDetector(object):
         rotated_geom_im = self.__get_rotated_sampling_im()
         # resample the target image and mask - onto the deformed fixed space
         # (so we can use the reference ROI slice for visualisation)
-        geo_arr = sitk.GetArrayFromImage(sitk.Resample(self.target_geo_im.get_image(), rotated_geom_im,
-                                                       sitk.Euler3DTransform(), sitk.sitkLinear))
-        roi_arr = sitk.GetArrayFromImage(sitk.Resample(mask_im, rotated_geom_im,
-                                                       sitk.Euler3DTransform(), sitk.sitkNearestNeighbor))
-        self.__visualise_rois(geo_arr, roi_arr, slice_dx, roi_list, ax, title)
+        geo_im = sitk.Resample(self.target_geo_im.get_image(), rotated_geom_im,
+                               sitk.Euler3DTransform(), sitk.sitkLinear)
+        roi_im = sitk.Resample(mask_im, rotated_geom_im,
+                               sitk.Euler3DTransform(), sitk.sitkNearestNeighbor)
+        self.__visualise_rois(geo_im, roi_im, slice_dx, roi_list, slice_orient, ax=ax, title=title)
 
 
-    def __visualise_rois(self, im_arr, roi_arr,
+    def __visualise_rois(self, im, roi_map,
                          slice_dx, roi_list,
+                         slice_orient=OrientationOptions.AXI,
                          ax=None,
                          title=None):
         """
         Show a greyscale image and overlay coloured ROIs.
 
         Args:
-            im_arr (numpy.array): a 3D image array
-            roi_arr (numpy.array): a 3D roi array (0 as background, non-zero as regions of interest)
+            im_arr (SimpleITK.Image): a 3D image
+            roi_arr (SimpleITK.Image): a 3D roi map (0 as background, non-zero as regions of interest)
             slice_dx (int): an index of the 2D slice / image to display (0th dimension of the image and roi arrays)
             roi_list (list): a list of ROI indexes in the ROI array
             ax (matplotlib.axes): the axes to draw the image and ROI overlay
             title (string): a title to label the axes
         """
+        # get arrays from images
+        im_arr = sitk.GetArrayFromImage(im)
+        roi_arr = sitk.GetArrayFromImage(roi_map)
+        # get image spacing
+        im_spacing = np.flip(np.array(im.GetSpacing()))
+        # pull out the relevant slice based on orientation
+        roi_slice, im_slice, extent = None, None, [0, 0, 0, 0]
+        if slice_orient == OrientationOptions.AXI:
+            roi_slice = roi_arr[slice_dx, :, :]
+            im_slice = im_arr[slice_dx, :, :]
+            extent = [0, im_arr.shape[2]*im_spacing[2], 0, im_arr.shape[1]*im_spacing[1]]
+        elif slice_orient == OrientationOptions.COR:
+            roi_slice = roi_arr[:, slice_dx, :]
+            im_slice = im_arr[:, slice_dx, :]
+            extent = [0, im_arr.shape[2]*im_spacing[2], 0, im_arr.shape[0]*im_spacing[0]]
+        elif slice_orient == OrientationOptions.SAG:
+            roi_slice = roi_arr[:, :, slice_dx]
+            im_slice = im_arr[:, :, slice_dx]
+            extent = [0, im_arr.shape[1]*im_spacing[1], 0, im_arr.shape[0]*im_spacing[0]]
+        assert roi_slice is not None, "ROIDetector::__visualise_rois() : " \
+                                      "expected slice_orient parameter of AXI, COR, or SAG [not %s]" % slice_orient
+        # plot
         if ax is None:
             f, ax = plt.subplots(1, 1)
-        roi_slice = roi_arr[slice_dx, :, :]
-        im_slice = im_arr[slice_dx, :, :]
         ax.imshow(im_slice, cmap='gray',
                   vmin=np.mean(im_slice)-1.0*np.std(im_slice),
-                  vmax=np.mean(im_slice)+2.0*np.std(im_slice))
+                  vmax=np.mean(im_slice)+2.0*np.std(im_slice),
+                  extent=extent)
         i = ax.imshow(np.ma.masked_where(roi_slice == 0, roi_slice),
                       cmap='nipy_spectral', vmin=np.min(roi_list)-1, vmax=np.max(roi_list)+1,
                       interpolation='none',
-                      alpha=0.7)
+                      alpha=0.7,
+                      extent=extent)
         ax.axis('off')
         ticks = list(range(np.min(roi_list), np.max(roi_list)+1))
         ticklabels = [ROI_IDX_LABEL_MAP[x] for x in ticks]

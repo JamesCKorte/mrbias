@@ -132,9 +132,11 @@ class ImageSetAbstract(ABC):
                  rescale_slope_list=None, rescale_intercept_list=None,
                  scale_slope_list=None, scale_intercept_list=None,
                  scanner_make=None, scanner_model=None, scanner_serial_number=None, scanner_field_strength=None,
-                 date_acquired=None, time_acquired=None):
+                 date_acquired=None, time_acquired=None,
+                 image_filepaths_list=None):
         self.label = set_label
         self.image_list = sitk_im_list
+        self.image_filepaths_list = image_filepaths_list
         self.meas_var_list = measurement_variable_list
         self.meas_var_name = measurement_variable_name
         self.meas_var_units = measurement_variable_units
@@ -557,10 +559,12 @@ class ImageBasic(object):
                  rescale_slope=None,
                  rescale_intercept=None,
                  scale_slope=None,
-                 scale_intercept=None):
+                 scale_intercept=None,
+                 filepath_list=None):
         self.label = label
         self.im = sitk_im
         self.series_instance_UID = series_instance_UID
+        self.filepath_list = filepath_list
         # image data information
         self.bits_allocated = bits_allocated
         self.bits_stored = bits_stored
@@ -572,6 +576,8 @@ class ImageBasic(object):
         return self.im
     def get_label(self):
         return self.label
+    def get_filepath_list(self):
+        return self.filepath_list
     def __str__(self):
         return "%s (image=[size%s%s], SeriesUID=%s)" % (self.label, str(sitk.GetArrayFromImage(self.im).shape),
                                                         type(self.im), self.series_instance_UID)
@@ -586,10 +592,11 @@ class ImageGeometric(ImageBasic):
                  rescale_slope=None,
                  rescale_intercept=None,
                  scale_slope=None,
-                 scale_intercept=None):
+                 scale_intercept=None,
+                 filepath_list=None):
         super().__init__(label, sitk_im, series_instance_UID,
                          bits_allocated, bits_stored,
-                         rescale_slope, rescale_intercept, scale_slope, scale_intercept)
+                         rescale_slope, rescale_intercept, scale_slope, scale_intercept, filepath_list)
         self.roi_mask_image_PD, self.roi_prop_dict_PD = None, None
         self.roi_mask_image_T1, self.roi_prop_dict_T1 = None, None
         self.roi_mask_image_T2, self.roi_prop_dict_T2 = None, None
@@ -937,7 +944,8 @@ class ImageSetDW(ImageSetAbstract):
                  scale_slope_list=None,
                  scale_intercept_list=None,
                  scanner_make=None, scanner_model=None, scanner_serial_number=None, scanner_field_strength=None,
-                 study_date=None, study_time=None):
+                 study_date=None, study_time=None,
+                 image_filepaths_list=None):
         super().__init__(set_label=set_label,
                          sitk_im_list=sitk_im_list,
                          measurement_variable_list=b_value_list,
@@ -950,7 +958,8 @@ class ImageSetDW(ImageSetAbstract):
                          rescale_slope_list=rescale_slope_list, rescale_intercept_list=rescale_intercept_list,
                          scale_slope_list=scale_slope_list, scale_intercept_list=scale_intercept_list,
                          scanner_make=scanner_make, scanner_model=scanner_model, scanner_serial_number=scanner_serial_number,
-                         scanner_field_strength=scanner_field_strength, date_acquired=study_date, time_acquired=study_time)
+                         scanner_field_strength=scanner_field_strength, date_acquired=study_date, time_acquired=study_time,
+                         image_filepaths_list=image_filepaths_list)
     def get_b_values(self):
         return super().get_measurement_variables()
     def set_dw_roi_mask(self, roi_sitk_image):

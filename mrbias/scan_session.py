@@ -490,7 +490,8 @@ class ScanSessionAbstract(ABC):
                                                                   bits_allocated = None,
                                                                   bits_stored = None,
                                                                   rescale_slope = None,
-                                                                  rescale_intercept = None))
+                                                                  rescale_intercept = None,
+                                                                  filepath_list=dw_imset.image_filepaths_list[0]))
                 else:
                     image_set_df.rename(columns={"SeriesInstanceUID": "SeriesUID"}, inplace=True)
                     rval = self._load_image_from_df(image_set_df, series_descrip=geoset_label)
@@ -500,7 +501,8 @@ class ScanSessionAbstract(ABC):
                                                           series_instance_uid,
                                                           bits_allocated, bits_stored,
                                                           rescale_slope, rescale_intercept,
-                                                          scale_slope, scale_intercept))
+                                                          scale_slope, scale_intercept,
+                                                          filepath_list=image_set_df["ImageFilePath"].tolist()))
             self.geom_image_list = geom_image_list
         return self.geom_image_list
 
@@ -811,6 +813,7 @@ class ScanSessionAbstract(ABC):
                 columns=col_list,
                 data=image_b_val_list)
             image_list = []
+            image_filepaths_list = []
             image_info_list = []
             for bval in unique_bval_list:
                 df_b = df_bval_images[df_bval_images["DiffusionBValue"] == bval].copy()
@@ -818,6 +821,7 @@ class ScanSessionAbstract(ABC):
                 rval = self._load_image_from_df(df_b, series_descrip="%s-%s" % (set_name, bval))
                 im, bits_allocated, bits_stored, rescale_slope, rescale_intercept, scale_slope, scale_intercept = rval
                 image_list.append(im)
+                image_filepaths_list.append(df_b["ImageFilePath"].tolist())
                 image_info_list.append((bits_allocated, bits_stored,
                                         rescale_slope, rescale_intercept,
                                         scale_slope, scale_intercept))
@@ -849,7 +853,8 @@ class ScanSessionAbstract(ABC):
                                              scale_slope_list, scale_intercept_list,
                                              scanner_make, scanner_model, scanner_sn,
                                              scanner_field_strength,
-                                             study_date, study_time)
+                                             study_date, study_time,
+                                             image_filepaths_list)
                 # link any available ADC maps
                 if adc_maps is not None:
                     for adc_map in adc_maps:

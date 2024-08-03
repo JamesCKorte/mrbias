@@ -23,17 +23,33 @@ Change Log:
   23-June-2022  :               (James Korte) : GitHub Release   MR-BIAS v1.0
 """
 import os
+import yaml
 from mrbias import MRBIAS
 
 
 # specify the configuration file to control the analysis
 configuration_filename = os.path.join("config", "validation_diffusion_config_jk.yaml")
+base_monthly_config_filename = os.path.join(r"config\monthly_diffusion", "validation_diffusion_config_monthX.yaml")
 
 # specific the dicom directories to analyse
 dicom_directory_str = r"I:\JK\MR-BIAS\Data_From_Maddie\Carr2022_data\%02d_MONTH"
 
-# create MRBIAS analysis objects
+# analyse central slices with a manual ROI placement
+for month_num in range(1, 13):
+    # load up the base config, modify and save for current month
+    manual_conf_filename = os.path.join(r"config\monthly_diffusion",
+                                        "validation_diffusion_config_month%d.yaml" % month_num)
+    conf = yaml.full_load(open(base_monthly_config_filename))
+    conf['roi_detection']['manual_roi_dw_filepath'] = "config/monthly_diffusion/manual_roi_files/MONTH_%02d.yaml" % month_num
+    yaml.dump(conf, open(manual_conf_filename, mode="w+"))
+    # analyse
+    mrb_month = MRBIAS(manual_conf_filename, write_to_screen=True)
+    mrb_month.analyse(dicom_directory_str % month_num)
+    # clear the temporary configuration file
+    os.remove(manual_conf_filename)
+
+# create MRBIAS analysis objects to pull out all voxel data in a large ROI
 mrb = MRBIAS(configuration_filename, write_to_screen=True)
-for month_num in  range(1,2): #range(1, 13):
+for month_num in  range(1, 13):
     mrb.analyse(dicom_directory_str % month_num)
 

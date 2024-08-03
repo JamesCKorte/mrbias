@@ -1006,7 +1006,6 @@ class RegistrationNone(RegistrationMethodAbstract):
     def register(self):
         metric_value = 0
         final_transform = sitk.Euler3DTransform()
-        print(final_transform)
         return final_transform, metric_value
 
 class RegistrationCorrelationGradientDescent(RegistrationMethodAbstract):

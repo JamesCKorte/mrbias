@@ -24,6 +24,11 @@ Change Log:
 """
 
 import os
+
+import tempfile
+import shutil
+
+from abc import ABC, abstractmethod
 import yaml
 from collections import OrderedDict
 import numbers
@@ -67,11 +72,15 @@ class MRBIAS(object):
     def __init__(self, config_filename, write_to_screen=True):
         mu.log("MR-BIAS::__init__(): parsing config file : %s" % config_filename, LogLevels.LOG_INFO)
         self.config_filename = config_filename
-        self.conf = MRIBIASConfiguration(config_filename)
+        self.global_config     = MRIBiasGlobalConfig(config_filename)
+        self.experiment_config = MRIBiasExperimentConfig(config_filename)
+        self.sorting_config    = MRIBiasDICOMSortConfig(config_filename)
+        self.detect_config     = MRIBiasROIDetectConfig(config_filename)
+        self.cf_config         = MRIBiasCurveFitConfig(config_filename)
         self.write_to_screen = write_to_screen
         # setup (global) class configuration from file
-        self.output_dir = self.conf.get_output_directory()
-        self.overwrite_existing_output = self.conf.get_overwrite_existing_output()
+        self.output_dir = self.global_config.get_output_directory()
+        self.overwrite_existing_output = self.global_config.get_overwrite_existing_output()
 
 
     def analyse(self, dicom_directory):
@@ -114,7 +123,7 @@ class MRBIAS(object):
         mu.log("-" * 100, LogLevels.LOG_INFO)
         mu.log("MR-BIAS::analyse() : Scan and sort the DICOM directory", LogLevels.LOG_INFO)
         mu.log("-" * 100, LogLevels.LOG_INFO)
-        scan_protocol = self.conf.get_scan_protocol_for_sorting()
+        scan_protocol = self.sorting_config.get_scan_protocol_for_sorting()
         ss = None
         if scan_protocol == "siemens_skyra_3p0T":
             ss = scan_session.SystemSessionSiemensSkyra(dicom_directory)
@@ -188,24 +197,51 @@ class MRBIAS(object):
         mu.log("-" * 100, LogLevels.LOG_INFO)
         mu.log("MR-BIAS::analyse() : Detect the ROIs on each geometry image ...", LogLevels.LOG_INFO)
         mu.log("-" * 100, LogLevels.LOG_INFO)
-        roi_template = self.conf.get_roi_template()
-        roi_reg_method = self.conf.get_roi_registration_method()
-        roi_is_partial_fov = self.conf.get_roi_registration_partial_fov()
-        roi_use_first_detection_for_all = self.conf.get_roi_use_first_detection_only()
-        roi_template_dir = None
-        if roi_template == "siemens_skyra_3p0T":
-            roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_skyra_3p0T")
-        elif roi_template == "systemlite_siemens_vida_3p0T":
-            roi_template_dir = os.path.join(mu.reference_template_directory(), "systemlite_siemens_vida_3p0T")
-        elif roi_template == "systemlite_siemens_vida_3p0T_180degrees":
-            roi_template_dir = os.path.join(mu.reference_template_directory(), "systemlite_siemens_vida_3p0T_180degrees")
-        elif roi_template == "philips_ingenia_1p5T":
-            roi_template_dir = os.path.join(mu.reference_template_directory(), "philips_ingenia_1p5T")
-        elif roi_template == "eurospin_philips_1p5T_allvials":
-            roi_template_dir = os.path.join(mu.reference_template_directory(), "eurospin_philips_1p5T_allvials")
-        elif roi_template == "siemens_diffusion":
-            roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_diffusion")
-        # ... add others
+        roi_template = self.detect_config.get_template()
+        roi_reg_method = self.detect_config.get_registration_method()
+        roi_is_partial_fov = self.detect_config.get_registration_partial_fov()
+        roi_use_first_detection_for_all = self.detect_config.get_use_first_detection_only()
+        roi_use_manual_roi = self.detect_config.get_use_manual_roi()
+        roi_T1_manual_filepath = self.detect_config.get_manual_T1_roi_filepath()
+        roi_T2_manual_filepath = self.detect_config.get_manual_T2_roi_filepath()
+        roi_DW_manual_filepath = self.detect_config.get_manual_DW_roi_filepath()
+        roi_template_dir, reg_method = None, None
+        temporary_dir, roi_template_dicom_dir = None, None
+        if roi_use_manual_roi:
+            # make a temporary template directory
+            roi_template = "manual"
+            temporary_dir = os.path.join(os.getcwd(), "tmp")
+            if not os.path.isdir(temporary_dir):
+                os.mkdir(temporary_dir)
+            roi_template_dir = temporary_dir
+            # no registration required just place the ROI on the image
+            reg_method = roi_detect.RegistrationOptions.NONE
+        else:
+            if roi_template == "siemens_skyra_3p0T":
+                roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_skyra_3p0T")
+            elif roi_template == "systemlite_siemens_vida_3p0T":
+                roi_template_dir = os.path.join(mu.reference_template_directory(), "systemlite_siemens_vida_3p0T")
+            elif roi_template == "systemlite_siemens_vida_3p0T_180degrees":
+                roi_template_dir = os.path.join(mu.reference_template_directory(), "systemlite_siemens_vida_3p0T_180degrees")
+            elif roi_template == "philips_ingenia_1p5T":
+                roi_template_dir = os.path.join(mu.reference_template_directory(), "philips_ingenia_1p5T")
+            elif roi_template == "eurospin_philips_1p5T_allvials":
+                roi_template_dir = os.path.join(mu.reference_template_directory(), "eurospin_philips_1p5T_allvials")
+            elif roi_template == "siemens_diffusion":
+                roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_diffusion")
+            # ... add others
+
+            # determine which detection method
+            if roi_reg_method == "none":
+                reg_method = roi_detect.RegistrationOptions.NONE
+            elif roi_reg_method == "two_stage_msme-GS_correl-GD":
+                reg_method = roi_detect.RegistrationOptions.TWOSTAGE_MSMEGS_CORELGD
+            elif roi_reg_method == "mattesMI-GD":
+                reg_method = roi_detect.RegistrationOptions.MMI_GRADIENTDESCENT
+            elif roi_reg_method == "correl-GD":
+                reg_method = roi_detect.RegistrationOptions.COREL_GRADIENTDESCENT
+
+        # create the detector if appropriate information available
         if roi_template is None:
             mu.log("MR-BIAS::analyse(): skipping analysis as unknown 'roi_template' defined for ROI detection",
                    LogLevels.LOG_ERROR)
@@ -215,21 +251,47 @@ class MRBIAS(object):
                    LogLevels.LOG_ERROR)
             return None
         else:
-            # determine which detection method
-            reg_method = None
-            if roi_reg_method == "none":
-                reg_method = roi_detect.RegistrationOptions.NONE
-            elif roi_reg_method == "two_stage_msme-GS_correl-GD":
-                reg_method = roi_detect.RegistrationOptions.TWOSTAGE_MSMEGS_CORELGD
-            elif roi_reg_method == "mattesMI-GD":
-                reg_method = roi_detect.RegistrationOptions.MMI_GRADIENTDESCENT
-            elif roi_reg_method == "correl-GD":
-                reg_method = roi_detect.RegistrationOptions.COREL_GRADIENTDESCENT
             assert reg_method is not None, "MR-BIAS::analyse(): invalid ROI registration method selected - please check your configuration file"
-
             roi_detectors = OrderedDict()
             first_geo_im, first_detector  = None, None
             for g_dx, geom_image in enumerate(geometric_images_linked.keys()):
+                if roi_use_manual_roi:
+                    # make a copy of the geometric image and ROI definition file into the temporary directory
+                    roi_template_dicom_dir = os.path.join(temporary_dir, "dicom")
+                    assert ((roi_T1_manual_filepath is not None) and os.path.isfile(roi_T1_manual_filepath)) or \
+                           ((roi_T2_manual_filepath is not None) and os.path.isfile(roi_T2_manual_filepath)) or \
+                           ((roi_DW_manual_filepath is not None) and os.path.isfile(roi_DW_manual_filepath)), \
+                        "MR-BIAS::analyse(): roi_manual_filepath not found (%s) - please check your configuration file" \
+                        "\n\tT1: %s\n\tT2: %s\n\tDW: %s" % (roi_T1_manual_filepath, roi_T2_manual_filepath, roi_DW_manual_filepath)
+                    file_list = []
+                    # add the dicom files
+                    for f in geom_image.get_filepath_list():
+                        file_list.append(f)
+
+                    if not os.path.isdir(roi_template_dicom_dir):
+                        os.mkdir(roi_template_dicom_dir)
+                    # Try to create symbolic links to the original files from our tmpdir
+                    try:
+                        if roi_T1_manual_filepath is not None:
+                            os.symlink(os.path.abspath(roi_T1_manual_filepath), os.path.join(roi_template_dir, "default_T1_rois.yaml"))
+                        if roi_T2_manual_filepath is not None:
+                            os.symlink(os.path.abspath(roi_T2_manual_filepath), os.path.join(roi_template_dir, "default_T2_rois.yaml"))
+                        if roi_DW_manual_filepath is not None:
+                            os.symlink(os.path.abspath(roi_DW_manual_filepath), os.path.join(roi_template_dir, "default_DW_rois.yaml"))
+                        for f in file_list:
+                            os.symlink(os.path.abspath(f), os.path.join(roi_template_dicom_dir, os.path.basename(f)))
+                    except:
+                        # if it fails (permissions etc.)
+                        # copy the original files to a tmpdir
+                        if roi_T1_manual_filepath is not None:
+                            shutil.copy(os.path.abspath(roi_T1_manual_filepath), os.path.join(roi_template_dir, "default_T1_rois.yaml"))
+                        if roi_T2_manual_filepath is not None:
+                            shutil.copy(os.path.abspath(roi_T2_manual_filepath), os.path.join(roi_template_dir, "default_T2_rois.yaml"))
+                        if roi_DW_manual_filepath is not None:
+                            shutil.copy(os.path.abspath(roi_DW_manual_filepath), os.path.join(roi_template_dir, "default_DW_rois.yaml"))
+                        for f in file_list:
+                            shutil.copy(os.path.abspath(f), os.path.join(roi_template_dicom_dir, os.path.basename(f)))
+
                 # create a roi detector
                 roi_detector = roi_detect.ROIDetector(geom_image, roi_template_dir,
                                                       registration_method=reg_method,
@@ -250,6 +312,12 @@ class MRBIAS(object):
                 # store detector
                 roi_detectors[geom_image.get_label()] = roi_detector
 
+                # clear up temporary sub-directory
+                if (roi_template_dicom_dir is not None) and os.path.isdir(roi_template_dicom_dir):
+                    shutil.rmtree(roi_template_dicom_dir)
+            # clear up temporary directory
+            if (temporary_dir is not None) and os.path.isdir(temporary_dir):
+                shutil.rmtree(temporary_dir)
 
         # ===================================================================================================
         # Fit parametric models to the raw voxel data
@@ -260,11 +328,10 @@ class MRBIAS(object):
         # --------------------------------------------------------------------
         # get phantom/experiment details from the configuration file
         # --------------------------------------------------------------------
-        phan_config = MRIBiasExperimentConfig(self.config_filename)
         # phantom details
-        phantom_maker = phan_config.get_phantom_manufacturer()
-        phantom_type = phan_config.get_phantom_type()
-        phantom_sn = phan_config.get_phantom_serial_number()
+        phantom_maker = self.experiment_config.get_phantom_manufacturer()
+        phantom_type = self.experiment_config.get_phantom_type()
+        phantom_sn = self.experiment_config.get_phantom_serial_number()
         ph_model_num, ph_item_num = None, None
         if (phantom_maker == "caliber_mri"):
             try:
@@ -283,8 +350,8 @@ class MRBIAS(object):
             return None
         
         #experiment details
-        field_strength = phan_config.get_field_strength_tesla()
-        temperature_celsius = phan_config.get_temperature_celsius()
+        field_strength = self.experiment_config.get_field_strength_tesla()
+        temperature_celsius = self.experiment_config.get_temperature_celsius()
         if phantom_type == "system_phantom":
             init_phan = phantom.ReferencePhantomCalibreSystemFitInit(field_strength=field_strength,  # Tesla
                                                                      temperature=temperature_celsius)  # Celsius
@@ -330,13 +397,12 @@ class MRBIAS(object):
         # --------------------------------------------------------------------
         # get curve fitting details from the configuration file
         # --------------------------------------------------------------------
-        cf_config = MRIBiasCurveFitConfig(self.config_filename)
-        include_roi_pmap_pages = cf_config.get_include_roi_pmaps()
-        cf_normal = cf_config.get_normalisation()
-        cf_averaging = cf_config.get_averaging()
-        cf_exclude = cf_config.get_exclude()
-        cf_percent_clipped_threshold = cf_config.get_percent_clipped_threshold()
-        cf_write_vox_data = cf_config.get_save_voxel_data()
+        include_roi_pmap_pages = self.cf_config.get_include_roi_pmaps()
+        cf_normal = self.cf_config.get_normalisation()
+        cf_averaging = self.cf_config.get_averaging()
+        cf_exclude = self.cf_config.get_exclude()
+        cf_percent_clipped_threshold = self.cf_config.get_percent_clipped_threshold()
+        cf_write_vox_data = self.cf_config.get_save_voxel_data()
         preproc_dict = {}
         if cf_normal in curve_fit.NORM_SETTING_STR_ENUM_MAP.keys():
             preproc_dict['normalise'] = curve_fit.NORM_SETTING_STR_ENUM_MAP[cf_normal]
@@ -351,9 +417,9 @@ class MRBIAS(object):
         for t1_vir_imageset in t1_vir_imagesets:
             t1_vir_imageset.update_ROI_mask()  # trigger a mask update
             # get model options from configuration file
-            t1_vir_model_list = cf_config.get_t1_vir_models()
-            inversion_exclusion_list = cf_config.get_t1_vir_exclusion_list()
-            exclusion_label = cf_config.get_t1_vir_exclusion_label()
+            t1_vir_model_list = self.cf_config.get_t1_vir_models()
+            inversion_exclusion_list = self.cf_config.get_t1_vir_exclusion_list()
+            exclusion_label = self.cf_config.get_t1_vir_exclusion_label()
             for t1_vir_model_str in t1_vir_model_list:
                 mdl = None
                 if t1_vir_model_str == "2_param":
@@ -392,11 +458,11 @@ class MRBIAS(object):
         for t1_vfa_imageset in t1_vfa_imagesets:
             t1_vfa_imageset.update_ROI_mask()  # trigger a mask update
             # get model options from configuration file
-            t1_vfa_model_list = cf_config.get_t1_vfa_models()
-            angle_exclusion_list = cf_config.get_t1_vfa_exclusion_list()
-            exclusion_label = cf_config.get_t1_vfa_exclusion_label()
-            use_2D_roi = cf_config.get_t1_vfa_2D_roi_setting()
-            centre_offset_2D_list = cf_config.get_t1_vfa_2D_slice_offset_list()
+            t1_vfa_model_list = self.cf_config.get_t1_vfa_models()
+            angle_exclusion_list = self.cf_config.get_t1_vfa_exclusion_list()
+            exclusion_label = self.cf_config.get_t1_vfa_exclusion_label()
+            use_2D_roi = self.cf_config.get_t1_vfa_2D_roi_setting()
+            centre_offset_2D_list = self.cf_config.get_t1_vfa_2D_slice_offset_list()
             if use_2D_roi:
                 mu.log("MR-BIAS::analyse() : \tT1-VFA use a 2D ROI ...", LogLevels.LOG_INFO)
             for t1_vfa_model_str in t1_vfa_model_list:
@@ -425,9 +491,9 @@ class MRBIAS(object):
         for t2_mse_imageset in t2_mse_imagesets:
             t2_mse_imageset.update_ROI_mask()  # trigger a mask update
             # get model options from configuration file
-            t2_mse_model_list = cf_config.get_t2_mse_models()
-            echo_exclusion_list = cf_config.get_t2_mse_exclusion_list()
-            exclusion_label = cf_config.get_t2_mse_exclusion_label()
+            t2_mse_model_list = self.cf_config.get_t2_mse_models()
+            echo_exclusion_list = self.cf_config.get_t2_mse_exclusion_list()
+            exclusion_label = self.cf_config.get_t2_mse_exclusion_label()
             for t2_mse_model_str in t2_mse_model_list:
                 mdl = None
                 if t2_mse_model_str == "3_param":
@@ -456,11 +522,11 @@ class MRBIAS(object):
         for dw_imageset in dw_imagesets:
             dw_imageset.update_ROI_mask()  # trigger a mask update
             # get model options from configuration file
-            dw_model_list = cf_config.get_dw_models()
-            use_2D_roi = cf_config.get_dw_2D_roi_setting()
+            dw_model_list = self.cf_config.get_dw_models()
+            use_2D_roi = self.cf_config.get_dw_2D_roi_setting()
             if use_2D_roi:
                 mu.log("MR-BIAS::analyse() : \tDW use a 2D ROI ...", LogLevels.LOG_INFO)
-                centre_offset_2D_list = cf_config.get_dw_2D_slice_offset_list()
+                centre_offset_2D_list = self.cf_config.get_dw_2D_slice_offset_list()
             else:
                 centre_offset_2D_list = None
             for dw_model_str in dw_model_list:
@@ -713,104 +779,36 @@ class MRBIAS(object):
         return output_subdir_name
 
 
-class MRIBIASConfiguration(object):
+class MRIBIASConfiguration(ABC):
     def __init__(self, config_filename):
         assert os.path.isfile(config_filename), "MR-BIASConfiguration::__init__(): couldn't locate config_file: %s" % config_filename
         mu.log("MR-BIASConfiguration::__init__(): parsing config file : %s" % config_filename, LogLevels.LOG_INFO)
         self.config = yaml.full_load(open(config_filename))
 
-    def get_output_directory(self):
-        glob_config = self.__get_global_config()
-        if glob_config is not None:
-            if "output_directory" in glob_config.keys():
-                return glob_config["output_directory"]
-        # not found, return a default value
-        default_value = os.path.join(os.getcwd(), "output")
-        mu.log("MR-BIASConfiguration::get_output_directory(): not found in configuration file, using default value : %s" % default_value, LogLevels.LOG_WARNING)
-        return default_value
-
-    def get_overwrite_existing_output(self):
-        glob_config = self.__get_global_config()
-        if glob_config is not None:
-            if "overwrite_existing_output" in glob_config.keys():
-                return glob_config["overwrite_existing_output"]
-        # not found, return a default value
-        default_value = False
-        mu.log("MR-BIASConfiguration::get_overwrite_existing_output(): not found in configuration file, using default value : %s" % default_value, LogLevels.LOG_WARNING)
-        return default_value
-
-    def get_scan_protocol_for_sorting(self):
-        sort_config = self.__get_dicom_sorting_config()
-        if sort_config is not None:
-            if "scan_protocol" in sort_config.keys():
-                x = sort_config["scan_protocol"]
-                # todo: check with options (from another YAML file?)
-                return x
-        # not found, return a default value
-        default_value = None
-        mu.log("MR-BIASConfiguration::get_scan_protocol_for_sorting(): not found in configuration file, using default value : %s" % default_value, LogLevels.LOG_WARNING)
-        return default_value
-
-    def get_roi_template(self):
-        detect_config = self.__get_roi_detection_config()
-        if detect_config is not None:
-            if "template_name" in detect_config.keys():
-                x = detect_config["template_name"]
-                # todo: check with options (from another YAML file?)
-                return x
-        # not found, return a default value
-        default_value = None
-        mu.log("MR-BIASConfiguration::get_roi_template(): not found in configuration file, using default value : %s" % default_value, LogLevels.LOG_WARNING)
-        return default_value
-
-    def get_roi_registration_method(self):
-        detect_config = self.__get_roi_detection_config()
-        if detect_config is not None:
-            if "registration_method" in detect_config.keys():
-                x = detect_config["registration_method"]
-                # todo: check with options (from another YAML file?)
-                return x
-        # not found, return a default value
-        default_value = "two_stage_msme-GS_correl-GD"
-        mu.log("MR-BIASConfiguration::get_roi_registration_method(): not found in configuration file, using default value : %s" % default_value, LogLevels.LOG_WARNING)
-        return default_value
-
-    def get_roi_registration_partial_fov(self):
-        detect_config = self.__get_roi_detection_config()
-        if detect_config is not None:
-            if "partial_fov" in detect_config.keys():
-                x = detect_config["partial_fov"]
-                # todo: check with options (from another YAML file?)
-                return x
-        # not found, return a default value
-        default_value = False
-        mu.log("MR-BIASConfiguration::get_roi_registration_partial_fov(): not found in configuration file, using default value : %s" % default_value, LogLevels.LOG_WARNING)
-        return default_value
-
-    def get_roi_use_first_detection_only(self):
-        detect_config = self.__get_roi_detection_config()
-        if detect_config is not None:
-            if "use_first_detection_only" in detect_config.keys():
-                x = detect_config["use_first_detection_only"]
-                return x
-        # not found, return a default value
-        default_value = False
-        mu.log("MR-BIASConfiguration::get_roi_use_first_detection_only(): not found in configuration file, using default value : %s" % default_value, LogLevels.LOG_WARNING)
-        return default_value
-
-
-
-
-    def __get_global_config(self):
+    def get_global_config(self):
         return MRIBIASConfiguration.__safe_get("global", self.config)
     def get_phantom_experiment_config(self):
         return MRIBIASConfiguration.__safe_get("phantom_experiment", self.config)
-    def __get_dicom_sorting_config(self):
+    def get_dicom_sorting_config(self):
         return MRIBIASConfiguration.__safe_get("dicom_sorting", self.config)
-    def __get_roi_detection_config(self):
+    def get_roi_detection_config(self):
         return MRIBIASConfiguration.__safe_get("roi_detection", self.config)
     def get_curve_fitting_config(self):
         return MRIBIASConfiguration.__safe_get("curve_fitting", self.config)
+
+    def get(self, param_name, default_value):
+        sub_config = self.get_sub_config()
+        if sub_config is not None:
+            if param_name in sub_config.keys():
+                return sub_config[param_name]
+        # not found, return a default value
+        mu.log("%s::get(%s): not found in configuration file, "
+               "using default value : %s" % (type(self).__name__, param_name, str(default_value)), LogLevels.LOG_WARNING)
+        return default_value
+
+    @abstractmethod
+    def get_sub_config(self):
+        return None
 
     @staticmethod
     def __safe_get(keyname, d):
@@ -818,337 +816,175 @@ class MRIBIASConfiguration(object):
             return d[keyname]
         return None
 
+class MRIBiasGlobalConfig(MRIBIASConfiguration):
+    def __init__(self, config_filename):
+        super().__init__(config_filename)
+
+    def get_sub_config(self):
+        return super().get_global_config()
+
+    def get_output_directory(self):
+        return self.get("output_directory", os.path.join(os.getcwd(), "output"))
+    def get_overwrite_existing_output(self):
+        return self.get("overwrite_existing_output", False)
+
+class MRIBiasDICOMSortConfig(MRIBIASConfiguration):
+    def __init__(self, config_filename):
+        super().__init__(config_filename)
+
+    def get_sub_config(self):
+        return super().get_dicom_sorting_config()
+
+    def get_scan_protocol_for_sorting(self):
+        return self.get("scan_protocol", None)
+
+
+class MRIBiasROIDetectConfig(MRIBIASConfiguration):
+    def __init__(self, config_filename):
+        super().__init__(config_filename)
+
+    def get_sub_config(self):
+        return super().get_roi_detection_config()
+
+    def get_template(self):
+        return self.get("template_name", None)
+    def get_registration_method(self):
+        return self.get("registration_method", "two_stage_msme-GS_correl-GD")
+    def get_registration_partial_fov(self):
+        return self.get("partial_fov", False)
+    def get_use_first_detection_only(self):
+        return self.get("use_first_detection_only", False)
+    def get_use_manual_roi(self):
+        return self.get("use_manual_roi", False)
+    def get_manual_T1_roi_filepath(self):
+        return self.get("manual_roi_t1_filepath", None)
+    def get_manual_T2_roi_filepath(self):
+        return self.get("manual_roi_t2_filepath", None)
+    def get_manual_DW_roi_filepath(self):
+        return self.get("manual_roi_dw_filepath", None)
+
+
 class MRIBiasExperimentConfig(MRIBIASConfiguration):
     def __init__(self, config_filename):
         super().__init__(config_filename)
 
+    def get_sub_config(self):
+        return super().get_phantom_experiment_config()
+
     def get_phantom_manufacturer(self):
-        phan_config = super().get_phantom_experiment_config()
-        if phan_config is not None:
-            if "phantom_manufacturer" in phan_config.keys():
-                return phan_config["phantom_manufacturer"]
-        # not found, return a default value
-        default_value = "caliber_mri"
-        mu.log("MR-BIASExperimentConfig::get_phantom_manufacturer(): not found in configuration file, "
-               "using default value : %s" % default_value, LogLevels.LOG_WARNING)
-        return default_value
-
+        return self.get("phantom_manufacturer", "caliber_mri")
     def get_phantom_type(self):
-        phan_config = super().get_phantom_experiment_config()
-        if phan_config is not None:
-            if "phantom_type" in phan_config.keys():
-                return phan_config["phantom_type"]
-        # not found, return a default value
-        default_value = "system_phantom"
-        mu.log("MR-BIASExperimentConfig::get_phantom_type(): not found in configuration file, "
-               "using default value : %s" % default_value, LogLevels.LOG_WARNING)
-        return default_value
-
+        return self.get("phantom_type", "system_phantom")
     def get_phantom_serial_number(self):
-        phan_config = super().get_phantom_experiment_config()
-        if phan_config is not None:
-            if "phantom_serial_number" in phan_config.keys():
-                return phan_config["phantom_serial_number"]
-        # not found, return a default value
-        default_value = "130-0093"
-        mu.log("MR-BIASExperimentConfig::phantom_serial_number(): not found in configuration file, "
-               "using default value : %s" % default_value, LogLevels.LOG_WARNING)
-        return default_value
-
+        return self.get("phantom_serial_number", "130-0093")
     def get_field_strength_tesla(self):
-        phan_config = super().get_phantom_experiment_config()
-        if phan_config is not None:
-            if "field_strength_tesla" in phan_config.keys():
-                return phan_config["field_strength_tesla"]
-        # not found, return a default value
-        default_value = 3.0
-        mu.log("MR-BIASExperimentConfig::field_strength_tesla(): not found in configuration file, "
-               "using default value : %0.2f" % default_value, LogLevels.LOG_WARNING)
-        return default_value
-
+        return self.get("field_strength_tesla", 3.0)
     def get_temperature_celsius(self):
-        phan_config = super().get_phantom_experiment_config()
-        if phan_config is not None:
-            if "temperature_celsius" in phan_config.keys():
-                return phan_config["temperature_celsius"]
-        # not found, return a default value
-        default_value = 20.0
-        mu.log("MR-BIASExperimentConfig::temperature_celsius(): not found in configuration file, "
-               "using default value : %0.2f" % default_value, LogLevels.LOG_WARNING)
-        return default_value
+        return self.get("temperature_celsius", 20.0)
 
 
 class MRIBiasCurveFitConfig(MRIBIASConfiguration):
     def __init__(self, config_filename):
         super().__init__(config_filename)
 
+    def get_sub_config(self):
+        return super().get_curve_fitting_config()
+
+    # VISUALISATION
     def get_include_roi_pmaps(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "roi_pmaps_in_pdf" in cf_config.keys():
-                return cf_config["roi_pmaps_in_pdf"]
-        # not found, return a default value
-        default_value = False
-        mu.log("MR-BIASCurveFitConfig::get_include_roi_pmaps(): not found in configuration file, "
-               "using default value : %s" % default_value, LogLevels.LOG_WARNING)
-        return default_value
+        return self.get("roi_pmaps_in_pdf", False)
 
+    # PREPROCESSING
     def get_averaging(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "averaging" in cf_config.keys():
-                return cf_config["averaging"]
-        # not found, return a default value
-        default_value = None
-        mu.log("MR-BIASCurveFitConfig::get_averaging(): not found in configuration file, "
-               "using default value : %s" % default_value, LogLevels.LOG_WARNING)
-        return default_value
-
+        return self.get("averaging", None)
     def get_normalisation(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "normalisation" in cf_config.keys():
-                return cf_config["normalisation"]
-        # not found, return a default value
-        default_value = "voxel_max"
-        mu.log("MR-BIASCurveFitConfig::get_normalisation(): not found in configuration file, "
-               "using default value : %s" % default_value, LogLevels.LOG_WARNING)
-        return default_value
-
+        return self.get("normalisation", "voxel_max")
     def get_exclude(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "exclude" in cf_config.keys():
-                return cf_config["exclude"]
-        # not found, return a default value
-        default_value = "clipped"
-        mu.log("MR-BIASCurveFitConfig::get_exclude(): not found in configuration file, "
-               "using default value : %s" % default_value, LogLevels.LOG_WARNING)
-        return default_value
-
+        return self.get("exclude", "clipped")
     def get_percent_clipped_threshold(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "percent_clipped_threshold" in cf_config.keys():
-                return cf_config["percent_clipped_threshold"]
-        # not found, return a default value
-        default_value = 200 # no parital clipping
-        mu.log("MR-BIASCurveFitConfig::get_percent_clipped_threshold(): not found in configuration file, "
-               "using default value : %s" % default_value, LogLevels.LOG_WARNING)
-        return default_value
+        return self.get("percent_clipped_threshold", 200)  # no parital clipping
 
-
+    # T1 VIR SETTINGS
+    def __get_t1_vir(self, param_name, default_value):
+        return self.__get_nestled("t1_vir_options", param_name, default_value)
     def get_t1_vir_models(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "t1_vir_options" in cf_config.keys():
-                t1_opts = cf_config["t1_vir_options"]
-                if "fitting_models" in t1_opts.keys():
-                    return t1_opts["fitting_models"]
-        # not found, return a default value
-        default_value = ["3_param"]
-        mu.log("MR-BIASCurveFitConfig::get_t1_vir_models(): not found in configuration file, "
-               "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
-        return default_value
-
+        return self.__get_t1_vir("fitting_models", ["3_param"])
     def get_t1_vir_exclusion_list(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "t1_vir_options" in cf_config.keys():
-                t1_opts = cf_config["t1_vir_options"]
-                if "inversion_exclusion_list" in t1_opts.keys():
-                    return t1_opts["inversion_exclusion_list"]
-        # not found, return a default value
-        default_value = None
-        mu.log("MR-BIASCurveFitConfig::get_t1_vir_exclusion_list(): not found in configuration file, "
-               "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
-        return default_value
-
+        return self.__get_t1_vir("inversion_exclusion_list", None)
     def get_t1_vir_exclusion_label(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "t1_vir_options" in cf_config.keys():
-                t1_opts = cf_config["t1_vir_options"]
-                if "inversion_exclusion_label" in t1_opts.keys():
-                    return t1_opts["inversion_exclusion_label"]
-        # not found, return a default valuefcurve
-        default_value = "user_IR_excld"
-        mu.log("MR-BIASCurveFitConfig::get_t1_vir_exclusion_label(): not found in configuration file, "
-               "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
-        return default_value
+        return self.__get_t1_vir("inversion_exclusion_label", "user_IR_excld")
+    def get_t1_vir_2D_slice_offset_list(self):
+        return self.__get_2D_slice_offset_list("t1_vir_options")
 
+    # T1 VFA SETTINGS
+    def __get_t1_vfa(self, param_name, default_value):
+        return self.__get_nestled("t1_vfa_options", param_name, default_value)
     def get_t1_vfa_models(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "t1_vfa_options" in cf_config.keys():
-                t1_opts = cf_config["t1_vfa_options"]
-                if "fitting_models" in t1_opts.keys():
-                    return t1_opts["fitting_models"]
-        # not found, return a default value
-        default_value = ["2_param"]
-        mu.log("MR-BIASCurveFitConfig::t1_vfa_options(): not found in configuration file, "
-               "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
-        return default_value
-
+        return self.__get_t1_vfa("fitting_models", ["2_param"])
     def get_t1_vfa_exclusion_list(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "t1_vfa_options" in cf_config.keys():
-                t1_opts = cf_config["t1_vfa_options"]
-                if "angle_exclusion_list" in t1_opts.keys():
-                    return t1_opts["angle_exclusion_list"]
-        # not found, return a default value
-        default_value = None
-        mu.log("MR-BIASCurveFitConfig::get_t1_vfa_exclusion_list(): not found in configuration file, "
-               "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
-        return default_value
-
+        return self.__get_t1_vfa("angle_exclusion_list", None)
     def get_t1_vfa_exclusion_label(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "t1_vfa_options" in cf_config.keys():
-                t1_opts = cf_config["t1_vfa_options"]
-                if "angle_exclusion_label" in t1_opts.keys():
-                    return t1_opts["angle_exclusion_label"]
-        # not found, return a default value
-        default_value = "user_angle_excld"
-        mu.log("MR-BIASCurveFitConfig::get_t1_vfa_exclusion_label(): not found in configuration file, "
-               "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
-        return default_value
-
+        return self.__get_t1_vfa("angle_exclusion_label", "user_angle_excld")
     def get_t1_vfa_2D_roi_setting(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "t1_vfa_options" in cf_config.keys():
-                t1_opts = cf_config["t1_vfa_options"]
-                if "use_2D_roi" in t1_opts.keys():
-                    return t1_opts["use_2D_roi"]
-        # not found, return a default value
-        default_value = False
-        mu.log("MR-BIASCurveFitConfig::get_t1_vfa_2D_roi_setting(): not found in configuration file, "
-               "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
-        return default_value
-
+        return self.__get_t1_vfa("use_2D_roi", False)
     def get_t1_vfa_2D_slice_offset_list(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "t1_vfa_options" in cf_config.keys():
-                t1_opts = cf_config["t1_vfa_options"]
-                if "slice_offset_2D" in t1_opts.keys():
-                    return [t1_opts["slice_offset_2D"]] # put single value in list
-                if "slice_offset_2D_list" in t1_opts.keys():
-                    return t1_opts["slice_offset_2D_list"]
-        # not found, return a default value
-        default_value = [0]
-        mu.log("MR-BIASCurveFitConfig::get_t1_vfa_2D_slice_offset_list(): not found in configuration file, "
-               "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
-        return default_value
+        return self.__get_2D_slice_offset_list("t1_vfa_options")
 
+    # T2 MSE SETTINGS
+    def __get_t2_mse(self, param_name, default_value):
+        return self.__get_nestled("t2_mse_options", param_name, default_value)
     def get_t2_mse_models(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "t2_mse_options" in cf_config.keys():
-                t2_opts = cf_config["t2_mse_options"]
-                if "fitting_models" in t2_opts.keys():
-                    return t2_opts["fitting_models"]
-        # not found, return a default value
-        default_value = ["3_param"]
-        mu.log("MR-BIASCurveFitConfig::t2_mse_options(): not found in configuration file, "
-               "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
-        return default_value
-
-
+        return self.__get_t2_mse("fitting_models", ["3_param"])
     def get_t2_mse_exclusion_list(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "t2_mse_options" in cf_config.keys():
-                t2_opts = cf_config["t2_mse_options"]
-                if "echo_exclusion_list" in t2_opts.keys():
-                    return t2_opts["echo_exclusion_list"]
-        # not found, return a default value
-        default_value = None
-        mu.log("MR-BIASCurveFitConfig::get_t2_mse_exclusion_list(): not found in configuration file, "
-               "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
-        return default_value
-
+        return self.__get_t2_mse("echo_exclusion_list", None)
     def get_t2_mse_exclusion_label(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "t2_mse_options" in cf_config.keys():
-                t2_opts = cf_config["t2_mse_options"]
-                if "echo_exclusion_label" in t2_opts.keys():
-                    return t2_opts["echo_exclusion_label"]
-        # not found, return a default value
-        default_value = "user_angle_excld"
-        mu.log("MR-BIASCurveFitConfig::get_t2_mse_exclusion_label(): not found in configuration file, "
-               "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
-        return default_value
+        return self.__get_t2_mse("echo_exclusion_label", "user_angle_excld")
+    def get_t2_mse_2D_slice_offset_list(self):
+        return self.__get_2D_slice_offset_list("t2_mse_options")
 
-
+    # DW SETTINGS
+    def __get_dw(self, param_name, default_value):
+        return self.__get_nestled("dw_options", param_name, default_value)
     def get_dw_models(self):
-            cf_config = super().get_curve_fitting_config()
-            if cf_config is not None:
-                if "dw_options" in cf_config.keys():
-                    dw_opts = cf_config["dw_options"]
-                    if "fitting_models" in dw_opts.keys():
-                        return dw_opts["fitting_models"]
-            # not found, return a default value
-            default_value = ["2_param"]
-            mu.log("MR-BIASCurveFitConfig::dw_options(): not found in configuration file, "
-                "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
-            return default_value
-
+        return self.__get_dw("fitting_models", ["2_param"])
     def get_dw_2D_roi_setting(self):
+        return self.__get_dw("use_2D_roi", False)
         cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "dw_options" in cf_config.keys():
-                dw_opts = cf_config["dw_options"]
-                if "use_2D_roi" in dw_opts.keys():
-                    return dw_opts["use_2D_roi"]
-        # not found, return a default value
-        default_value = False
-        mu.log("MR-BIASCurveFitConfig::get_dw_2D_roi_setting(): not found in configuration file, "
-               "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
-        return default_value
-
     def get_dw_2D_slice_offset_list(self):
+        return self.__get_2D_slice_offset_list("dw_options")
+
+    # OUTPUT SETTINGS
+    def get_save_voxel_data(self):
+        return self.get("save_voxel_data", False)
+    def get_save_parameter_maps(self):
+        return self.get("save_parameter_maps", False)
+
+    # helper functions
+    def __get_nestled(self, option_name, param_name, default_value):
         cf_config = super().get_curve_fitting_config()
         if cf_config is not None:
-            if "dw_options" in cf_config.keys():
-                dw_opts = cf_config["dw_options"]
-                if "slice_offset_2D" in dw_opts.keys():
-                    return [dw_opts["slice_offset_2D"]] # put single value in list
-                if "slice_offset_2D_list" in dw_opts.keys():
-                    return dw_opts["slice_offset_2D_list"]
+            if option_name in cf_config.keys():
+                opts = cf_config[option_name]
+                if param_name in opts.keys():
+                    return opts[param_name]
+        # not found, return a default value
+        mu.log("MRIBiasCurveFitConfig::get(%s -> %s): not found in configuration file, "
+               "using default value : %s" % (option_name, param_name, str(default_value)), LogLevels.LOG_WARNING)
+        return default_value
+    def __get_2D_slice_offset_list(self, model_option):
+        cf_config = super().get_curve_fitting_config()
+        if cf_config is not None:
+            if model_option in cf_config.keys():
+                opts = cf_config[model_option]
+                if "slice_offset_2D" in opts.keys():
+                    return [opts["slice_offset_2D"]] # put single value in list
+                if "slice_offset_2D_list" in opts.keys():
+                    return opts["slice_offset_2D_list"]
         # not found, return a default value
         default_value = [0]
-        mu.log("MR-BIASCurveFitConfig::get_dw_2D_slice_offset_list(): not found in configuration file, "
-               "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
+        mu.log("MRIBiasCurveFitConfig::get_dw_2D_slice_offset_list(%s): not found in configuration file, "
+               "using default value : %s" % (model_option, str(default_value)), LogLevels.LOG_WARNING)
         return default_value
-
-
-    def get_save_voxel_data(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "save_voxel_data" in cf_config.keys():
-                return cf_config["save_voxel_data"]
-        # not found, return a default value
-        default_value = False
-        mu.log("MR-BIASCurveFitConfig::get_save_voxel_data(): not found in configuration file, "
-               "using default value : %s" % default_value, LogLevels.LOG_WARNING)
-        return default_value
-
-    def get_save_parameter_maps(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "save_parameter_maps" in cf_config.keys():
-                return cf_config["save_parameter_maps"]
-        # not found, return a default value
-        default_value = False
-        mu.log("MR-BIASCurveFitConfig::get_save_parameter_maps(): not found in configuration file, "
-               "using default value : %s" % default_value, LogLevels.LOG_WARNING)
-        return default_value
-
 
 if __name__ == "__main__":
     main()

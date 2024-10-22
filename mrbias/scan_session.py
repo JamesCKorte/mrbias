@@ -189,7 +189,9 @@ Helper functions to filter the MRI meta-data are implemented in this class to be
 used by each concrete sub-class (i.e. ScanSessionSiemensSkyra, ScanSessionPhilipsIngenia etc.)
 """
 class ScanSessionAbstract(ABC):
-    def __init__(self, dicom_dir, force_geometry_imageset=None):
+    def __init__(self, dicom_dir,
+                 force_geometry_imageset=None,
+                 display_unknown_series=True):
         assert os.path.isdir(dicom_dir), "ScanSessionAbstract::init(): " \
                                          "dicom_dir must be a valid directory : %s" % dicom_dir
         # image and imageSet lists to populate
@@ -205,6 +207,8 @@ class ScanSessionAbstract(ABC):
 
         # force the scan session to use another type of image as the geometric image for ROI detection
         self.force_geometry_imageset = force_geometry_imageset
+        # option to display or hide unclassified series in the output
+        self.display_unknown_series = display_unknown_series
 
         # search the dicom directory and strip tags to populate a metadata dataframe
         self.dicom_searcher = mu.DICOMSearch(dicom_dir)
@@ -322,13 +326,25 @@ class ScanSessionAbstract(ABC):
         df = self.meta_data_df.drop_duplicates(subset=["ImageSet"])
         # mark the images which are tagged as geometric (to handle forced override)
         category_idx = 0
+        r_last = None
         for idx, r in df.iterrows():
             if r.IsGeometric:
-                set_name = mu.key_fmt % ("g", category_idx)
-                # apply the label to the main dataframe
-                self.meta_data_df.loc[
-                    self.meta_data_df["SeriesInstanceUID"].isin([r.SeriesInstanceUID]), "GeomSet"] = set_name
-                category_idx = category_idx + 1
+                # check if geometry set is on different spatial grid than previous (to avoid unnessiscary re-detection/registration)
+                new_geo_set = True
+                if r_last is not None:
+                    if (r_last.SliceThickness == r.SliceThickness) and \
+                            (r_last.PixelSpacing == r.PixelSpacing) and \
+                            (r_last.Rows == r.Rows)  and \
+                            (r_last.Columns == r.Columns):
+                        new_geo_set = False
+
+                if new_geo_set:
+                    set_name = mu.key_fmt % ("g", category_idx)
+                    # apply the label to the main dataframe
+                    self.meta_data_df.loc[
+                        self.meta_data_df["SeriesInstanceUID"].isin([r.SeriesInstanceUID]), "GeomSet"] = set_name
+                    category_idx = category_idx + 1
+                    r_last = r
         # --------------------------------------------------------
         # - loop over the image in acquisition order and link with the last geom image taken
         df = self.meta_data_df.drop_duplicates(subset=["SeriesInstanceUID"])
@@ -392,7 +408,7 @@ class ScanSessionAbstract(ABC):
         return None
 
     # output the categorisation, set grouping & reference images (via the log)
-    def log_meta_dataframe(self, show_unknown=True):
+    def log_meta_dataframe(self):
         def mid_truncate(s, n):
             s = str(s)
             if len(s) > n:
@@ -401,7 +417,7 @@ class ScanSessionAbstract(ABC):
             return s
 
         df = self.meta_data_df.copy(deep=True)
-        if show_unknown is False:
+        if not self.display_unknown_series:
             df['Category'].replace(IMAGE_UNKNOWN_STR, np.nan, inplace=True)
             df.dropna(subset=['Category'], inplace=True)
         df = df.drop_duplicates(subset=["SeriesInstanceUID", "Category"])
@@ -427,6 +443,8 @@ class ScanSessionAbstract(ABC):
     def write_pdf_summary_page(self, c):
         df = self.meta_data_df.copy(deep=True)
         df['Category'].replace('', np.nan, inplace=True)
+        if not self.display_unknown_series:
+            df['Category'].replace(IMAGE_UNKNOWN_STR, np.nan, inplace=True)
         df.dropna(subset=['Category'], inplace=True)
         df = df.drop_duplicates(subset=["SeriesInstanceUID", "Category"])
         table_width = 179
@@ -443,6 +461,7 @@ class ScanSessionAbstract(ABC):
                      "=" * table_width)
         cur_image_set = ""
         line_offset = 0
+        line_dx = 0
         for line_dx, (idx, r) in enumerate(df.iterrows()):
             if (r.ImageSet == "") or ((r.ImageSet != cur_image_set) and (not (r.Category in [IMAGE_UNKNOWN_STR]))):
                 c.drawString(pdf.left_margin,
@@ -472,8 +491,9 @@ class ScanSessionAbstract(ABC):
             if '' in geom_options:
                 geom_options.remove('')
             geomset_series_uid_list = df[df["GeomSet"].isin(geom_options)].SeriesInstanceUID
+            geomset_series_numbers = df[df["GeomSet"].isin(geom_options)].SeriesNumber
             geom_image_list = []
-            for series_instance_uid, geoset_label in zip(geomset_series_uid_list, geom_options):
+            for series_instance_uid, series_num, geoset_label in zip(geomset_series_uid_list, geomset_series_numbers, geom_options):
                 image_set_df = self.meta_data_df[self.meta_data_df.SeriesInstanceUID == series_instance_uid].copy()
 
                 # check if it is a geometric image (not diffusion, T1 or T2, etc...)
@@ -486,7 +506,7 @@ class ScanSessionAbstract(ABC):
                             #create an ImageGeometric from diffusion image
                             geom_image_list.append(ImageGeometric(geoset_label,
                                                                   dw_imset.image_list[0], #use b = 0
-                                                                  series_instance_uid,
+                                                                  series_instance_uid, series_num,
                                                                   bits_allocated = None,
                                                                   bits_stored = None,
                                                                   rescale_slope = None,
@@ -495,10 +515,11 @@ class ScanSessionAbstract(ABC):
                 else:
                     image_set_df.rename(columns={"SeriesInstanceUID": "SeriesUID"}, inplace=True)
                     rval = self._load_image_from_df(image_set_df, series_descrip=geoset_label)
-                    im, bits_allocated, bits_stored, rescale_slope, rescale_intercept, scale_slope, scale_intercept = rval
+                    im, bits_allocated, bits_stored, \
+                        rescale_slope, rescale_intercept, scale_slope, scale_intercept, series_number = rval
                     geom_image_list.append(ImageGeometric(geoset_label,
                                                           im,
-                                                          series_instance_uid,
+                                                          series_instance_uid, series_number,
                                                           bits_allocated, bits_stored,
                                                           rescale_slope, rescale_intercept,
                                                           scale_slope, scale_intercept,
@@ -516,6 +537,7 @@ class ScanSessionAbstract(ABC):
             for imageset_name, (image_and_metadata_list, ref_geom_image) in imageset_data_dict.items():
                 pd_images, metadata_list, other_list = zip(*image_and_metadata_list)
                 series_instance_uid = other_list[0]["SeriesInstanceUID"]
+                series_number = other_list[0]["SeriesNumber"]
                 bits_allocated = other_list[0]["BitsAllocated"]
                 bits_stored = other_list[0]["BitsStored"]
                 rescale_slope = other_list[0]["RescaleSlope"]
@@ -527,7 +549,7 @@ class ScanSessionAbstract(ABC):
                 pd_image_list.append(ImageProtonDensity(imageset_name,
                                                         pd_images[0],
                                                         ref_geom_image,
-                                                        series_instance_uid,
+                                                        series_instance_uid, series_number,
                                                         bits_allocated, bits_stored,
                                                         rescale_slope, rescale_intercept))
             self.pd_image_list = pd_image_list
@@ -588,6 +610,7 @@ class ScanSessionAbstract(ABC):
         for imageset_name, (image_and_metadata_list, ref_geom_image) in imageset_data_dict.items():
             images, metadata_list, other_list = zip(*image_and_metadata_list)
             series_instance_uids = [x["SeriesInstanceUID"] for x in other_list]
+            series_numbers = [x["SeriesNumber"] for x in other_list]
             bits_allocated = other_list[0]["BitsAllocated"]
             bits_stored = other_list[0]["BitsStored"]
             rescale_slope_list     = [x["RescaleSlope"] for x in other_list]
@@ -609,19 +632,20 @@ class ScanSessionAbstract(ABC):
                 flip_angle_list = [x[0] for x in metadata_list]
                 repetition_time_list = [x[1] for x in metadata_list]
                 # sort the images by the inversion recovery time
-                flip_and_image_list = [(fa, tr, im, suid, rs, ri, ss, si) for im, fa, tr, suid, rs, ri, ss, si in
-                                       zip(images, flip_angle_list, repetition_time_list, series_instance_uids,
+                flip_and_image_list = [(fa, tr, im, suid, snum, rs, ri, ss, si) for im, fa, tr, suid, snum, rs, ri, ss, si in
+                                       zip(images, flip_angle_list, repetition_time_list,
+                                           series_instance_uids, series_numbers,
                                            rescale_slope_list, rescale_intercept_list,
                                            scale_slope_list, scale_intercept_list)]
                 flip_and_image_list.sort(key=lambda x: x[0])
-                flip_angle_list, repetition_time_list, images, series_instance_uids,\
+                flip_angle_list, repetition_time_list, images, series_instance_uids, series_numbers, \
                     rescale_slope_list, rescale_intercept_list, scale_slope_list, scale_intercept_list = zip(*flip_and_image_list)
                 image_set = ImageSetT1VFA(imageset_name,
                                           images,
                                           flip_angle_list,
                                           repetition_time_list,
                                           ref_geom_image,
-                                          series_instance_uids,
+                                          series_instance_uids, series_numbers,
                                           bits_allocated, bits_stored,
                                           rescale_slope_list, rescale_intercept_list,
                                           scale_slope_list, scale_intercept_list,
@@ -631,13 +655,13 @@ class ScanSessionAbstract(ABC):
                 inversion_time_list = [x[0] for x in metadata_list]
                 repetition_time_list = [x[1] for x in metadata_list]
                 # sort the images by the inversion recovery time
-                tir_time_and_image_list = [(tir, tr, im, suid, rs, ri, ss, si) for im, tir, tr, suid, rs, ri, ss, si in
+                tir_time_and_image_list = [(tir, tr, im, suid, snums, rs, ri, ss, si) for im, tir, tr, suid, snums, rs, ri, ss, si in
                                            zip(images, inversion_time_list, repetition_time_list,
-                                               series_instance_uids,
+                                               series_instance_uids, series_numbers,
                                                rescale_slope_list, rescale_intercept_list,
                                                scale_slope_list, scale_intercept_list)]
                 tir_time_and_image_list.sort(key=lambda x: x[0])
-                inversion_time_list, repetition_time_list, images, series_instance_uids,\
+                inversion_time_list, repetition_time_list, images, series_instance_uids, series_numbers, \
                     rescale_slope_list, rescale_intercept_list, scale_slope_list, scale_intercept_list = zip(*tir_time_and_image_list)
                 # create the imageset object and append to return list
                 image_set = ImageSetT1VIR(imageset_name,
@@ -645,7 +669,7 @@ class ScanSessionAbstract(ABC):
                                           inversion_time_list,
                                           repetition_time_list,
                                           ref_geom_image,
-                                          series_instance_uids,
+                                          series_instance_uids, series_numbers,
                                           bits_allocated, bits_stored,
                                           rescale_slope_list, rescale_intercept_list,
                                           scale_slope_list, scale_intercept_list,
@@ -682,8 +706,8 @@ class ScanSessionAbstract(ABC):
             # sort the echos into groups (to handle multiple slices)
             image_echo_time_list = []
             for index, row in df_t2.iterrows():
-                d_vec = [float(row["EchoTime"]), float(row["RepetitionTime"]),
-                         row["SeriesInstanceUID"], row["SOPInstanceUID"], row["ImageFilePath"], row["SliceLocation"],
+                d_vec = [float(row["EchoTime"]), float(row["RepetitionTime"]), row["SeriesInstanceUID"],
+                         row["SeriesNumber"], row["SOPInstanceUID"], row["ImageFilePath"], row["SliceLocation"],
                          int(row["BitsAllocated"]), int(row["BitsStored"]), row["RescaleSlope"], row["RescaleIntercept"]]
                 if scanner_make == "Philips":
                     d_vec.append(row["ScaleSlope"])
@@ -696,7 +720,7 @@ class ScanSessionAbstract(ABC):
             series_instance_uids = [x[2] for x in image_echo_time_list]
             # load up each of the echo images
             unique_echo_list = pd.unique(echo_time_list)
-            col_list = ["EchoTime", "RepetitionTime", "SeriesUID", "SOPInstanceUID",
+            col_list = ["EchoTime", "RepetitionTime", "SeriesUID", "SeriesNumber", "SOPInstanceUID",
                         "ImageFilePath", "SliceLocation",
                         "BitsAllocated", "BitsStored", "RescaleSlope", "RescaleIntercept"]
             if scanner_make == "Philips":
@@ -711,11 +735,12 @@ class ScanSessionAbstract(ABC):
                 df_image = df_echo_images[df_echo_images["EchoTime"] == echo_time].copy()
                 df_image.loc[:, "Manufacturer"] = scanner_make
                 rval = self._load_image_from_df(df_image, series_descrip="%s-%s" % (set_name, echo_time))
-                im, bits_allocated, bits_stored, rescale_slope, rescale_intercept, scale_slope, scale_intercept = rval
+                im, bits_allocated, bits_stored, \
+                    rescale_slope, rescale_intercept, scale_slope, scale_intercept, series_number = rval
                 image_list.append(im)
                 image_info_list.append((bits_allocated, bits_stored,
                                         rescale_slope, rescale_intercept,
-                                        scale_slope, scale_intercept))
+                                        scale_slope, scale_intercept, series_number))
 
             # include any associated geometry image
             ref_geom_image = None
@@ -730,6 +755,7 @@ class ScanSessionAbstract(ABC):
             rescale_intercept_list = [x[3] for x in image_info_list]
             scale_slope_list       = [x[4] for x in image_info_list]
             scale_intercept_list   = [x[5] for x in image_info_list]
+            series_number_list     = [x[6] for x in image_info_list]
             # create the appropriate ImageSet based on category
             if category == ImageCatetory.T2_MSE:
                 imageset_list.append(ImageSetT2MSE(set_name,
@@ -737,7 +763,7 @@ class ScanSessionAbstract(ABC):
                                                    unique_echo_list,
                                                    repetition_time_list,
                                                    ref_geom_image,
-                                                   series_instance_uids,
+                                                   series_instance_uids, series_number_list,
                                                    bits_allocated_list[0], bits_stored_list[0], # assume same across echos
                                                    rescale_slope_list, rescale_intercept_list,
                                                    scale_slope_list, scale_intercept_list,
@@ -750,7 +776,7 @@ class ScanSessionAbstract(ABC):
                                                     unique_echo_list,
                                                     repetition_time_list,
                                                     ref_geom_image,
-                                                    series_instance_uids,
+                                                    series_instance_uids, series_number_list,
                                                     bits_allocated_list[0], bits_stored_list[0], # assume same across echos
                                                     rescale_slope_list, rescale_intercept_list,
                                                     scale_slope_list, scale_intercept_list,
@@ -789,9 +815,8 @@ class ScanSessionAbstract(ABC):
             # sort the echos into groups (to handle multiple slices)
             image_b_val_list = []
             for index, row in df_diff.iterrows():
-                d_vec = [float(row["DiffusionBValue"]), float(row["RepetitionTime"]),
-                         row["SeriesInstanceUID"], row["SOPInstanceUID"],
-                         row["ImageFilePath"], row["SliceLocation"],
+                d_vec = [float(row["DiffusionBValue"]), float(row["RepetitionTime"]), row["SeriesInstanceUID"], row["SeriesNumber"],
+                         row["SOPInstanceUID"],  row["ImageFilePath"], row["SliceLocation"],
                          int(row["BitsAllocated"]), int(row["BitsStored"]), row["RescaleSlope"], row["RescaleIntercept"]]
                 if scanner_make == "Philips":
                     d_vec.append(row["ScaleSlope"])
@@ -804,7 +829,8 @@ class ScanSessionAbstract(ABC):
             series_instance_uids = [x[2] for x in image_b_val_list]
             # load up each of the echo images
             unique_bval_list = pd.unique(b_value_list)
-            col_list = ["DiffusionBValue", "RepetitionTime", "SeriesUID", "SOPInstanceUID", "ImageFilePath", "SliceLocation",
+            col_list = ["DiffusionBValue", "RepetitionTime", "SeriesUID", "SeriesNumber",
+                        "SOPInstanceUID", "ImageFilePath", "SliceLocation",
                         "BitsAllocated", "BitsStored", "RescaleSlope", "RescaleIntercept"]
             if scanner_make == "Philips":
                 col_list.append("ScaleSlope")
@@ -819,12 +845,13 @@ class ScanSessionAbstract(ABC):
                 df_b = df_bval_images[df_bval_images["DiffusionBValue"] == bval].copy()
                 df_b.loc[:, "Manufacturer"] = scanner_make
                 rval = self._load_image_from_df(df_b, series_descrip="%s-%s" % (set_name, bval))
-                im, bits_allocated, bits_stored, rescale_slope, rescale_intercept, scale_slope, scale_intercept = rval
+                im, bits_allocated, bits_stored, \
+                    rescale_slope, rescale_intercept, scale_slope, scale_intercept, series_number = rval
                 image_list.append(im)
                 image_filepaths_list.append(df_b["ImageFilePath"].tolist())
                 image_info_list.append((bits_allocated, bits_stored,
                                         rescale_slope, rescale_intercept,
-                                        scale_slope, scale_intercept))
+                                        scale_slope, scale_intercept, series_number))
 
             # include any associated geometry image
             ref_geom_image = None
@@ -840,6 +867,7 @@ class ScanSessionAbstract(ABC):
             rescale_intercept_list = [x[3] for x in image_info_list]
             scale_slope_list       = [x[4] for x in image_info_list]
             scale_intercept_list   = [x[5] for x in image_info_list]
+            series_number_list     = [x[6] for x in image_info_list]
             # create the appropriate ImageSet based on category
             if category == ImageCatetory.DW:
                 diffusion_imset = ImageSetDW(set_name,
@@ -847,7 +875,7 @@ class ScanSessionAbstract(ABC):
                                              unique_bval_list,
                                              repetition_time_list,
                                              ref_geom_image,
-                                             series_instance_uids,
+                                             series_instance_uids, series_number_list,
                                              bits_allocated_list[0], bits_stored_list[0],  # assume same across echos
                                              rescale_slope_list, rescale_intercept_list,
                                              scale_slope_list, scale_intercept_list,
@@ -891,7 +919,8 @@ class ScanSessionAbstract(ABC):
                 pmap_df = self.meta_data_df[self.meta_data_df.SeriesInstanceUID == series_instance_uid].copy()
                 pmap_df.rename(columns={"SeriesInstanceUID": "SeriesUID"}, inplace=True)
                 rval = self._load_image_from_df(pmap_df, series_descrip=pmap_label)
-                sitk_im, bits_allocated, bits_stored, rescale_slope, rescale_intercept, scale_slope, scale_intercept = rval
+                sitk_im, bits_allocated, bits_stored, \
+                    rescale_slope, rescale_intercept, scale_slope, scale_intercept, series_number = rval
                 # get the date and time ('SeriesDate', 'SeriesTime')
                 date_aqcuired = pmap_df['SeriesDate'].unique().tolist()[0]
                 time_aqcuired = pmap_df['SeriesTime'].unique().tolist()[0]
@@ -927,9 +956,9 @@ class ScanSessionAbstract(ABC):
     def _load_image_from_df(self, im_df, series_descrip=None):
         # drop any duplicates
         im_df.drop_duplicates(subset=['SeriesUID', 'SOPInstanceUID'], keep='first', inplace=True)
-
         # get the series UID and manufacturor
         series_uid = im_df.SeriesUID.values[0]
+        series_number = im_df.drop_duplicates(subset=["SeriesNumber"]).SeriesNumber.iloc[0]
         scanner_make = im_df.drop_duplicates(subset=["Manufacturer"]).Manufacturer.iloc[0]
         # get the datatype details
         bits_allocated = im_df.drop_duplicates(subset=["BitsAllocated"]).BitsAllocated.iloc[0]
@@ -968,7 +997,7 @@ class ScanSessionAbstract(ABC):
                                             series_descrp=series_descrip,
                                             philips_scaling=(scanner_make == "Philips"))
         im, rescale_slope, rescale_intercept, scale_slope, scale_intercept = r_val
-        return im, bits_allocated, bits_stored, rescale_slope, rescale_intercept, scale_slope, scale_intercept
+        return im, bits_allocated, bits_stored, rescale_slope, rescale_intercept, scale_slope, scale_intercept, series_number
 
 
     def get_spin_echo_series(self, df=None):
@@ -1041,12 +1070,14 @@ class ScanSessionAbstract(ABC):
                 # load the image
                 image_df.rename(columns={"SeriesInstanceUID": "SeriesUID"}, inplace=True)
                 rval = self._load_image_from_df(image_df, series_descrip=set_name)
-                im, bits_allocated, bits_stored, rescale_slope, rescale_intercept, scale_slope, scale_intercept = rval
+                im, bits_allocated, bits_stored, \
+                    rescale_slope, rescale_intercept, scale_slope, scale_intercept, series_number = rval
 
                 # group the image and metadata together
                 image_and_metadata_list.append((im,  # image
                                                 tuple(dicom_meta_list),  # image set parameters (i.e. flip angle)
                                                 {"SeriesInstanceUID": series_uid,
+                                                 "SeriesNumber": series_number,
                                                  "BitsAllocated": bits_allocated,
                                                  "BitsStored": bits_stored,
                                                  "RescaleSlope": rescale_slope,
@@ -1071,8 +1102,8 @@ class ScanSessionAbstract(ABC):
 
 
 class SystemSessionAbstract(ScanSessionAbstract):
-    def __init__(self, dicom_dir, force_geometry_imageset=None):
-        super().__init__(dicom_dir, force_geometry_imageset)
+    def __init__(self, dicom_dir, force_geometry_imageset=None, display_unknown_series=True):
+        super().__init__(dicom_dir, force_geometry_imageset, display_unknown_series)
 
     def get_dw_series_UIDs(self):
         return None
@@ -1081,8 +1112,10 @@ class SystemSessionAbstract(ScanSessionAbstract):
         return None
 
 class DiffusionSessionAbstract(ScanSessionAbstract):
-    def __init__(self, dicom_dir, force_geometry_imageset=None):
-        super().__init__(dicom_dir, force_geometry_imageset)
+    def __init__(self, dicom_dir, force_geometry_imageset=None, display_unknown_series=True):
+        super().__init__(dicom_dir, force_geometry_imageset, display_unknown_series)
+        # replace diffusion bvalues that are blank with a 0
+        self.meta_data_df.fillna(value={"DiffusionBValue": 0}, inplace=True)
 
     def get_proton_density_series_UIDs(self):
         return None
@@ -1103,8 +1136,10 @@ class DiffusionSessionAbstract(ScanSessionAbstract):
 
 #TEMPLATE SYSTEM PHANTOM CLASS FOR NEW ADDITIONS
 class SystemSessionTemplate(SystemSessionAbstract):
-    def __init__(self, dicom_dir):
-        super().__init__(dicom_dir)
+    def __init__(self, dicom_dir, display_unknown_series=True):
+        super().__init__(dicom_dir,
+                         force_geometry_imageset=None,
+                         display_unknown_series=display_unknown_series)
 
     def get_geometric_series_UIDs(self):
         return None
@@ -1127,8 +1162,10 @@ class SystemSessionTemplate(SystemSessionAbstract):
 
 #TEMPLATE DIFFUSION PHANTOM CLASS FOR NEW ADDITIONS
 class DiffusionSessionTemplate(DiffusionSessionAbstract):
-    def __init__(self, dicom_dir):
-        super().__init__(dicom_dir)
+    def __init__(self, dicom_dir, display_unknown_series=True):
+        super().__init__(dicom_dir,
+                         force_geometry_imageset=None,
+                         display_unknown_series=display_unknown_series)
 
     def get_geometric_series_UIDs(self):
         return None
@@ -1142,8 +1179,9 @@ class DiffusionSessionTemplate(DiffusionSessionAbstract):
 
 
 class DiffusionSessionPhilipsIngeniaAmbitionX(DiffusionSessionAbstract):
-    def __init__(self, dicom_dir):
-        super().__init__(dicom_dir)
+    def __init__(self, dicom_dir, display_unknown_series=True):
+        super().__init__(dicom_dir,
+                         display_unknown_series=display_unknown_series)
 
     def get_geometric_series_UIDs(self):
         df_ge_3D = super().get_3D_series()
@@ -1153,18 +1191,38 @@ class DiffusionSessionPhilipsIngeniaAmbitionX(DiffusionSessionAbstract):
 
     def get_dw_series_UIDs(self):
         df_2D = super().get_2D_series()
-        df_2D_thick = df_2D[df_2D.SliceThickness == 4]
-        df_2D_psn = df_2D_thick[df_2D_thick["SequenceName"].str.match(r"(?=.*\bDwiSE\b)") == True]
-        df_2D_psn = df_2D_psn.sort_values(["DiffusionBValue"])
-        return df_2D_psn.index
+        df_2D_psn = df_2D[df_2D["SequenceName"].str.match(r"(?=.*\bDwiSE\b)") == True]
+        df_2D_psn_trace = df_2D_psn[df_2D_psn["DiffusionGradientOrientation"] == '[0.0, 0.0, 0.0]']
+        df_2D_psn_trace = df_2D_psn_trace.sort_values(["DiffusionBValue"])
+        return df_2D_psn_trace.index
 
     def get_adc_series_UIDs(self):
         return None
 
+class DiffusionSessionPhilipsIngenia(DiffusionSessionAbstract):
+    def __init__(self, dicom_dir, display_unknown_series=True):
+        super().__init__(dicom_dir,
+                         force_geometry_imageset=ImageCatetory.DW,
+                         display_unknown_series=display_unknown_series)
+
+    def get_geometric_series_UIDs(self):
+        return None
+
+    def get_dw_series_UIDs(self):
+        df_2D = super().get_2D_series()
+        df_2D_psn = df_2D[df_2D["SequenceName"].str.match(r"(?=.*\bDwiSE\b)") == True]
+        df_2D_psn_trace = df_2D_psn[df_2D_psn["DiffusionGradientOrientation"] == '[0.0, 0.0, 0.0]']
+        df_2D_psn_trace = df_2D_psn_trace.sort_values(["DiffusionBValue"])
+        return df_2D_psn_trace.index
+
+    def get_adc_series_UIDs(self):
+        return None
 
 class DiffusionSessionSiemensSkyra(DiffusionSessionAbstract):
-    def __init__(self, dicom_dir):
-        super().__init__(dicom_dir, force_geometry_imageset=ImageCatetory.DW)
+    def __init__(self, dicom_dir, display_unknown_series=True):
+        super().__init__(dicom_dir,
+                         force_geometry_imageset=ImageCatetory.DW,
+                         display_unknown_series=display_unknown_series)
 
     def get_geometric_series_UIDs(self):
         return None
@@ -1180,9 +1238,52 @@ class DiffusionSessionSiemensSkyra(DiffusionSessionAbstract):
         df_2D_tracew = df_2D[df_2D["ImageType"].str.contains("'ADC'")]
         return df_2D_tracew.index
 
+
+class DiffusionSessionGEOptima(DiffusionSessionAbstract):
+    def __init__(self, dicom_dir, display_unknown_series=True):
+        super().__init__(dicom_dir,
+                         force_geometry_imageset=ImageCatetory.DW,
+                         display_unknown_series=display_unknown_series)
+    def get_geometric_series_UIDs(self):
+        return None
+    def get_dw_series_UIDs(self):
+        df_2D = super().get_2D_series()
+        df_2D_epi = df_2D[df_2D["ScanningSequence"].str.contains("'EP'")] # EPI
+        df_2D_epi_orig = df_2D_epi[df_2D_epi["ImageType"].str.contains("'ORIGINAL'")].copy() # Original not an ADC map
+        df_2D_epi_orig = df_2D_epi_orig.sort_values(["DiffusionBValue"])
+        return df_2D_epi_orig.index
+    def get_adc_series_UIDs(self):
+        return None
+
+
+class DiffusionSessionGEDiscovery(DiffusionSessionAbstract):
+    def __init__(self, dicom_dir, display_unknown_series=True):
+        super().__init__(dicom_dir,
+                         force_geometry_imageset=ImageCatetory.DW,
+                         display_unknown_series=display_unknown_series)
+    def get_geometric_series_UIDs(self):
+        return None
+    def get_dw_series_UIDs(self):
+        df_2D = super().get_2D_series()
+        df_2D_epi = df_2D[df_2D["ScanningSequence"].str.contains("'EP'")] # EPI
+        df_2D_epi_tce = df_2D_epi[df_2D_epi["DiffusionGradientOrientation"].isin([14, 15])]
+        # from: https://github.com/rordenlab/dcm2niix/issues/449
+        # DiffusionRightLeftDicomValue = 3;
+        # DiffusionAnteriorPosteriorDicomValue = 4;
+        # DiffusionSuperiorInferiorDicomValue = 5;
+        # DiffusionT2DicomValue = 14;
+        # DiffusionCombinedDicomValue = 15;
+        df_2D_epi_tce = df_2D_epi_tce.sort_values(["DiffusionBValue"])
+        return df_2D_epi_tce.index
+    def get_adc_series_UIDs(self):
+        return None
+
+
 class SystemSessionAVLPhilipsMarlinNoGeo(SystemSessionAbstract):
-    def __init__(self, dicom_dir):
-        super().__init__(dicom_dir, force_geometry_imageset=ImageCatetory.T1_VFA)
+    def __init__(self, dicom_dir, display_unknown_series=True):
+        super().__init__(dicom_dir,
+                         force_geometry_imageset=ImageCatetory.T1_VFA,
+                         display_unknown_series=display_unknown_series)
 
     def get_geometric_series_UIDs(self):
         return None
@@ -1216,8 +1317,9 @@ class SystemSessionAVLPhilipsMarlinNoGeo(SystemSessionAbstract):
 
 
 class SystemSessionPhilipsIngeniaAmbitionX(SystemSessionAbstract):
-    def __init__(self, dicom_dir):
-        super().__init__(dicom_dir)
+    def __init__(self, dicom_dir, display_unknown_series=True):
+        super().__init__(dicom_dir,
+                         display_unknown_series=display_unknown_series)
 
     def get_geometric_series_UIDs(self):
         df_ge_3D = super().get_3D_series()
@@ -1257,8 +1359,9 @@ class SystemSessionPhilipsIngeniaAmbitionX(SystemSessionAbstract):
 
 
 class SystemSessionSiemensSkyra(SystemSessionAbstract):
-    def __init__(self, dicom_dir):
-        super().__init__(dicom_dir)
+    def __init__(self, dicom_dir, display_unknown_series=True):
+        super().__init__(dicom_dir,
+                         display_unknown_series=display_unknown_series)
 
     def get_geometric_series_UIDs(self):
         df_ge = super().get_gradient_echo_series()
@@ -1306,8 +1409,9 @@ class SystemSessionSiemensSkyra(SystemSessionAbstract):
 
 
 class SystemSessionPhilipsMarlin(SystemSessionAbstract):
-    def __init__(self, dicom_dir):
-        super().__init__(dicom_dir)
+    def __init__(self, dicom_dir, display_unknown_series=True):
+        super().__init__(dicom_dir,
+                         display_unknown_series=display_unknown_series)
 
     def get_geometric_series_UIDs(self):
         df_ge = super().get_gradient_echo_series()
@@ -1352,8 +1456,10 @@ class SystemSessionPhilipsMarlin(SystemSessionAbstract):
 
 
 class SystemSessionAucklandCAM(SystemSessionAbstract):
-    def __init__(self, dicom_dir):
-        super().__init__(dicom_dir, force_geometry_imageset=ImageCatetory.T1_VFA)
+    def __init__(self, dicom_dir, display_unknown_series=True):
+        super().__init__(dicom_dir,
+                         force_geometry_imageset=ImageCatetory.T1_VFA,
+                         display_unknown_series=display_unknown_series)
 
     def get_geometric_series_UIDs(self):
         return None
@@ -1386,8 +1492,9 @@ class SystemSessionAucklandCAM(SystemSessionAbstract):
 
 
 class SystemSessionSiemensSkyraErin(SystemSessionAbstract):
-    def __init__(self, dicom_dir):
-        super().__init__(dicom_dir)
+    def __init__(self, dicom_dir, display_unknown_series=True):
+        super().__init__(dicom_dir,
+                         display_unknown_series=display_unknown_series)
 
     def get_geometric_series_UIDs(self):
         df_se = super().get_spin_echo_series()

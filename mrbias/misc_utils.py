@@ -32,6 +32,7 @@ from enum import IntEnum
 
 import tempfile
 import shutil
+import copy
 
 import pydicom as dcm
 import pandas as pd
@@ -77,6 +78,16 @@ for i in range(16):
     DW_ROI_LABEL_IDX_MAP["dw_roi_%d" % (i+1)] = i+36+1
 # create a reverse lookup
 ROI_LABEL_IDX_MAP = {v: k for k, v in ROI_IDX_LABEL_MAP.items()}
+
+class OrientationOptions(IntEnum):
+    AXI = 1
+    COR = 2
+    SAG = 3
+
+class PhantomOptions(IntEnum):
+    RELAX_SYSTEM = 1
+    RELAX_EUROSPIN = 2
+    DIFFUSION_NIST = 3
 
 
 class ColourSettings(object):
@@ -405,6 +416,60 @@ def find_nearest_float(value, array):
     idx = (np.abs(array - value)).argmin()
     return array[idx], abs(array[idx]-value)
 
+def sitk_deepcopy(im):
+    im_arr = sitk.GetArrayFromImage(im)
+    new_im = sitk.GetImageFromArray(copy.deepcopy(im_arr))
+    new_im.SetOrigin(im.GetOrigin())
+    new_im.SetSpacing(im.GetSpacing())
+    new_im.SetDirection(im.GetDirection())
+    return new_im
+
+def make_sitk_zeros_image_like(im):
+    im_arr = sitk.GetArrayFromImage(im)
+    # create new one
+    zero_im_arr = np.zeros_like(im_arr, dtype=im_arr.dtype)
+    # Convert the zero array to a simpleITK image with matched spatial properties to the
+    # initial  image
+    zero_image = sitk.GetImageFromArray(zero_im_arr)
+    zero_image.SetOrigin(im.GetOrigin())
+    zero_image.SetDirection(im.GetDirection())
+    zero_image.SetSpacing(im.GetSpacing())
+    return zero_image
+
+def get_homog_matrix_from_transform(sitk_tx):
+    tx = sitk.Euler3DTransform(sitk_tx)
+    tx_matrix = np.zeros([4, 4], dtype=float)
+    tx_matrix[0:3, 0:3] = np.array([tx.GetMatrix()[0:3],
+                                    tx.GetMatrix()[3:6],
+                                    tx.GetMatrix()[6:9]])  # rotation matrix
+    tx_matrix[3, 3] = 1.0
+    tx_matrix[0:3, 3] = np.array(tx.GetTranslation()) # translation
+    return tx_matrix
+
+# pull out the relevant slice based on orientation
+def get_slice_and_extent(im, orient, dx=None):
+    im_slice, extent = None, [0, 0, 0, 0]
+    im_arr = sitk.GetArrayFromImage(im)
+    im_spacing = np.flip(np.array(im.GetSpacing()))
+    if orient == OrientationOptions.AXI:
+        if dx is None:
+            dx = int(im_arr.shape[0]/2)
+        im_slice = im_arr[dx, :, :]
+        extent = [0, im_arr.shape[2] * im_spacing[2], 0, im_arr.shape[1] * im_spacing[1]]
+    elif orient == OrientationOptions.COR:
+        if dx is None:
+            dx = int(im_arr.shape[1]/2)
+        im_slice = im_arr[:, dx, :]
+        extent = [0, im_arr.shape[2] * im_spacing[2], 0, im_arr.shape[0] * im_spacing[0]]
+    elif orient == OrientationOptions.SAG:
+        if dx is None:
+            dx = int(im_arr.shape[2]/2)
+        im_slice = im_arr[:, :, dx]
+        extent = [0, im_arr.shape[1] * im_spacing[1], 0, im_arr.shape[0] * im_spacing[0]]
+    assert im_slice is not None, "get_slice_and_extent() : " \
+                                 "expected slice_orient parameter of AXI, COR, or SAG [not %s]" % slice_orient
+    return im_slice, extent
+
 
 
 # Which tags are important?
@@ -415,7 +480,7 @@ class DICOMSearch(object):
     def __init__(self, target_dir, read_single_file=False, output_csv_filename=None):
         log("DICOMSearch::init(): searching target DCM dir: %s" % target_dir,
             LogLevels.LOG_INFO)
-        private_tags = [dcm.tag.Tag(0x2001, 0x1020), dcm.tag.Tag(0x2005, 0x100E), dcm.tag.Tag(0x2005, 0x100D), dcm.tag.Tag(0x0019, 0x100C)]
+        private_tags = [dcm.tag.Tag(0x2001, 0x1020), dcm.tag.Tag(0x2005, 0x100E), dcm.tag.Tag(0x2005, 0x100D), dcm.tag.Tag(0x0019, 0x100C), dcm.tag.Tag(0x0043, 0x1030)]
         filepaths = []
         for path, dirs, files in os.walk(target_dir):
             for file in files:
@@ -458,14 +523,16 @@ class DICOMSearch(object):
                              'RescaleSlope', 'RescaleIntercept',
                              'ScaleSlope', 'ScaleIntercept', # Phillips Specific
                              'SequenceVariant', 'MRAcquisitionType',
-                             'SliceThickness', 'FlipAngle',
-                             'EchoTime', 'EchoNumbers', 'RepetitionTime', 'PixelBandwidth',
+                             'SliceThickness', 'PixelSpacing', 'Rows', 'Columns',
+                             'FlipAngle', 'EchoTime', 'EchoNumbers', 'RepetitionTime', 'PixelBandwidth',
                              'NumberOfPhaseEncodingSteps', 'PercentSampling', 'SliceLocation',
-                             "SequenceName", "MagneticFieldStrength", "InversionTime", "DiffusionBValue"]
+                             "SequenceName", "MagneticFieldStrength", "InversionTime",
+                             "DiffusionBValue", "DiffusionGradientOrientation", "StackID"]
         alternatives_dict = {"SequenceName" : [dcm.tag.Tag(0x2001, 0x1020), "PulseSequenceName"],
                              "ScaleSlope" : [dcm.tag.Tag(0x2005, 0x100E)],
                              "ScaleIntercept" : [dcm.tag.Tag(0x2005, 0x100D)],
-                             "DiffusionBValue" : [dcm.tag.Tag(0x0019, 0x100C)]}
+                             "DiffusionBValue" : [dcm.tag.Tag(0x0019, 0x100C)],
+                             "DiffusionGradientOrientation": [dcm.tag.Tag(0x0043, 0x1030)]}
                              # "ScanningSequence": ["EchoPulseSequence"], #[EchoPulseSequence"],
                              # "MRAcquisitionType": ["VolumetricProperties"],
                              # "AcquisitionDate": ["InstanceCreationDate", "ContentDate"],
@@ -478,9 +545,6 @@ class DICOMSearch(object):
             for ds, filepath in ds_filepaths:
                 data_row = [filepath]
                 available_tags = ds.dir()
-                # for private_tag in private_tags:
-                #     if private_tag in ds.keys():
-                #         available_tags.append(private_tag)
                 for tag_name in column_meta_names[1:]: # skip the "ImageFilePath"
                     if tag_name in available_tags:
                         data_row.append(ds[tag_name].value)

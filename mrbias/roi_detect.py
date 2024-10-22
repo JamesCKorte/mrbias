@@ -19,9 +19,10 @@ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY
 --------------------------------------------------------------------------------
 Change Log:
 --------------------------------------------------------------------------------
-  21-June-2021  : (Zachary Chin, James Korte) : Initial code from masters project
-02-August-2021  :               (James Korte) : Updated for MR-BIAS code v0.0
-  23-June-2022  :               (James Korte) : GitHub Release   MR-BIAS v1.0
+     21-June-2021  : (Zachary Chin, James Korte) : Initial code from masters project
+   02-August-2021  :               (James Korte) : Updated for MR-BIAS code v0.0
+     23-June-2022  :               (James Korte) : GitHub Release   MR-BIAS v1.0
+21-September-2024  :               (James Korte) : Refactoring   MR-BIAS v1.0
 """
 
 import os
@@ -31,7 +32,7 @@ from collections import OrderedDict
 from abc import ABC, abstractmethod
 
 import SimpleITK as sitk
-import yaml
+import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 
@@ -50,57 +51,74 @@ if str(root) not in sys.path:
     sys.path.insert(1, str(root))
 # import required mrbias modules
 from mrbias import misc_utils as mu
-from mrbias.misc_utils import LogLevels
-from mrbias.misc_utils import ROI_IDX_LABEL_MAP, T1_ROI_LABEL_IDX_MAP, T2_ROI_LABEL_IDX_MAP, DW_ROI_LABEL_IDX_MAP
+from mrbias.misc_utils import LogLevels, OrientationOptions, PhantomOptions
 import mrbias.scan_session as scan_session
 import mrbias.image_sets as image_sets
-
-
-# for future expansion / different phantoms
-class ROITypeOptions(IntEnum):
-    SPHERE = 1
-    CYLINDER = 2
-
-class RegistrationOptions(IntEnum):
-    NONE = 0
-    COREL_GRADIENTDESCENT = 1
-    MSME_GRIDSEARCH = 2
-    TWOSTAGE_MSMEGS_CORELGD = 3
-    MMI_GRADIENTDESCENT = 4
-
-class OrientationOptions(IntEnum):
-    AXI = 1
-    COR = 2
-    SAG = 2
+from mrbias.roi_detection_methods.roi_template import ROITemplate
+from mrbias.roi_detection_methods.detection_methods import DetectionOptions
+from mrbias.roi_detection_methods.register_none import RegistrationNone
+from mrbias.roi_detection_methods.register_correl_gd import RegistrationCorrelationGradientDescent
+from mrbias.roi_detection_methods.register_mmi_gd import RegistrationMutualInformationGradientDescent
+from mrbias.roi_detection_methods.register_mse_gridsearch import RegistrationMSEGridSearch
+from mrbias.roi_detection_methods.register_two_stage import RegistrationTwoStage
+from mrbias.roi_detection_methods.register_axi_gridsearch_correl_gd import RegistrationAxialRotGridThenNBestGradDecnt
+from mrbias.roi_detection_methods.shape_diffusion_nist import ShapeDiffusionNIST
 
 
 def main():
+    #run_phantom(PhantomOptions.RELAX_SYSTEM) # run a system phantom
+    run_phantom(PhantomOptions.DIFFUSION_NIST) # run a diffusion phantom
+
+def run_phantom(phan_option):
+    # setup output filenames
+    file_prefix = "roi_detect"
+    if phan_option == PhantomOptions.RELAX_SYSTEM:
+        file_prefix = "roi_detect_sys"
+    elif phan_option == PhantomOptions.DIFFUSION_NIST:
+        file_prefix = "roi_detect_diff"
     # setup the logger to write to file
-    mu.initialise_logger("roi_detect.log", force_overwrite=True, write_to_screen=True)
+    mu.initialise_logger("%s.log" % file_prefix, force_overwrite=True, write_to_screen=True)
     # setup a pdf to test the pdf reporting
     pdf = mu.PDFSettings()
-    c = canvas.Canvas("roi_detect.pdf", landscape(pdf.page_size))
+    c = canvas.Canvas("%s.pdf" % file_prefix, landscape(pdf.page_size))
 
-    # target images to test (skyra)
-    dcm_dir_a = os.path.join(mu.reference_data_directory(), "mrbias_testset_B")
-    ss = scan_session.SystemSessionSiemensSkyra(dcm_dir_a)
+    # target images to test
+    ss = None
+    if phan_option == PhantomOptions.RELAX_SYSTEM:
+        dcm_dir_a = os.path.join(mu.reference_data_directory(), "mrbias_testset_B")
+        ss = scan_session.SystemSessionSiemensSkyra(dcm_dir_a)
+    elif phan_option == PhantomOptions.DIFFUSION_NIST:
+        dcm_dir_a = os.path.join(mu.reference_data_directory(), "mrbias_testset_C")
+        ss = scan_session.DiffusionSessionSiemensSkyra(dcm_dir_a)
+
     test_geometric_images = ss.get_geometric_images()
-    test_hard = test_geometric_images[0]
-    test_easy = test_geometric_images[1]
-    test_geo_vec = [test_easy] #[test_hard, test_easy]
-    case_name_vec = ["small miss-alignment"]#["large miss-alignment", "small miss-alignment"]
+    test_geo_vec = [test_geometric_images[0]]
+    case_name_vec = ["test_image_0"]
 
-    # get the T1 and T2 imagesets
-    t1_vir_imagesets = ss.get_t1_vir_image_sets()
-    t1_vfa_imagesets = ss.get_t1_vfa_image_sets()
-    t2_mse_imagesets = ss.get_t2_mse_image_sets()
+    if phan_option == PhantomOptions.RELAX_SYSTEM:
+        # get the T1 and T2 imagesets
+        t1_vir_imagesets = ss.get_t1_vir_image_sets()
+        t1_vfa_imagesets = ss.get_t1_vfa_image_sets()
+        t2_mse_imagesets = ss.get_t2_mse_image_sets()
+    elif phan_option == PhantomOptions.DIFFUSION_NIST:
+        # get the diffusion weighted imagesets
+        dw_imagesets = ss.get_dw_image_sets()
 
     # set the test template
-    TEST_TEMPLATE_DIR = os.path.join(mu.reference_template_directory(), "siemens_skyra_3p0T")
+    test_template_dir = None
+    detection_method = None
+    if phan_option == PhantomOptions.RELAX_SYSTEM:
+        test_template_dir = os.path.join(mu.reference_template_directory(), "siemens_skyra_3p0T")
+        detection_method = DetectionOptions.TWOSTAGE_MSEGS_CORELGD
+    elif phan_option == PhantomOptions.DIFFUSION_NIST:
+        test_template_dir = os.path.join(mu.reference_template_directory(), "siemens_diffusion_no_ice")
+        detection_method = DetectionOptions.SHAPE_DIFFUSION_NIST
 
     for test_target_im, case_str in zip(test_geo_vec, case_name_vec):
         # create a roi detector
-        roi_detector = ROIDetector(test_target_im, TEST_TEMPLATE_DIR)
+        roi_detector = ROIDetector(test_target_im, test_template_dir,
+                                   detection_method=detection_method,
+                                   partial_fov=False)
         # detect the ROIs and return the masks on the target image
         roi_detector.detect()
 
@@ -109,313 +127,25 @@ def main():
         roi_detector.write_pdf_summary_page(c, figure_title)
 
     # for each of the image datasets show the detected ROIs
-    for t1_vir_imageset in t1_vir_imagesets:
-        t1_vir_imageset.update_ROI_mask()  # trigger a mask update
-        t1_vir_imageset.write_roi_pdf_page(c, include_pmap_pages=True)
-    for t1_vfa_imageset in t1_vfa_imagesets:
-        t1_vfa_imageset.update_ROI_mask()  # trigger a mask update
-        t1_vfa_imageset.write_roi_pdf_page(c, include_pmap_pages=True)
-    for t2_mse_imageset in t2_mse_imagesets:
-        t2_mse_imageset.update_ROI_mask()  # trigger a mask update
-        t2_mse_imageset.write_roi_pdf_page(c, include_pmap_pages=True)
+    if phan_option == PhantomOptions.RELAX_SYSTEM:
+        for t1_vir_imageset in t1_vir_imagesets:
+            t1_vir_imageset.update_ROI_mask()  # trigger a mask update
+            t1_vir_imageset.write_roi_pdf_page(c, include_pmap_pages=True)
+        for t1_vfa_imageset in t1_vfa_imagesets:
+            t1_vfa_imageset.update_ROI_mask()  # trigger a mask update
+            t1_vfa_imageset.write_roi_pdf_page(c, include_pmap_pages=True)
+        for t2_mse_imageset in t2_mse_imagesets:
+            t2_mse_imageset.update_ROI_mask()  # trigger a mask update
+            t2_mse_imageset.write_roi_pdf_page(c, include_pmap_pages=True)
+    elif phan_option == PhantomOptions.DIFFUSION_NIST:
+        for dw_imageset in dw_imagesets:
+            dw_imageset.update_ROI_mask()  # trigger a mask update
+            dw_imageset.write_roi_pdf_page(c, include_pmap_pages=True)
 
     # save the pdf report
     c.save()
     mu.log("------ FIN -------", LogLevels.LOG_INFO)
     plt.show()
-
-
-class ROITemplate(object):
-    def __init__(self, template_dir,
-                 dcm_subdir="dicom",
-                 t1_rois_file="default_T1_rois.yaml",
-                 t2_rois_file="default_T2_rois.yaml",
-                 dw_rois_file="default_DW_rois.yaml"):
-        dcm_dir = os.path.join(template_dir, dcm_subdir)
-        t1_yaml_file = os.path.join(template_dir, t1_rois_file)
-        t2_yaml_file = os.path.join(template_dir, t2_rois_file)
-        dw_yaml_file = os.path.join(template_dir, dw_rois_file)
-        if not os.path.isdir(dcm_dir):
-            mu.log("ROITemplate::__init__(): invalid dicom dir : %s" % dcm_dir, LogLevels.LOG_WARNING)
-        if not os.path.isfile(t1_yaml_file):
-            mu.log("ROITemplate::__init__(): invalid t1 roi yaml file : %s" % t1_yaml_file, LogLevels.LOG_WARNING)
-        if not os.path.isfile(t2_yaml_file):
-            mu.log("ROITemplate::__init__(): invalid t2 roi yaml file : %s" % t2_yaml_file, LogLevels.LOG_WARNING)
-        if not os.path.isfile(dw_yaml_file):
-            mu.log("ROITemplate::__init__(): invalid dw roi yaml file : %s" % dw_yaml_file, LogLevels.LOG_WARNING)
-        # load the image file
-        mu.log("ROITemplate::init(): loading template geometry image from DCM dir: %s" %
-               dcm_dir, LogLevels.LOG_INFO)
-        files_sorted, series_uid, rescale_slope, rescale_intercept, \
-            scale_slope, scale_intercept, is_philips = mu.parse_dicom_dir_for_info(dcm_dir)
-        r_val = mu.load_image_from_filelist(files_sorted, series_uid,
-                                            rescale_slope, rescale_intercept,
-                                            scale_slope, scale_intercept, philips_scaling=is_philips)
-        im, rescale_slope, rescale_intercept, scale_slope, scale_intercept = r_val
-        self.image = im
-        # parse the ROI yaml files
-        self.t1_roi_dict = self.parse_t1_yaml(t1_yaml_file)
-        self.t2_roi_dict = self.parse_t2_yaml(t2_yaml_file)
-        self.dw_roi_dict = self.parse_dw_yaml(dw_yaml_file)
-
-    def parse_t1_yaml(self, yaml_file):
-        return self.__parse_roi_yaml_file(yaml_file, T1_ROI_LABEL_IDX_MAP)
-    def parse_t2_yaml(self, yaml_file):
-        return self.__parse_roi_yaml_file(yaml_file, T2_ROI_LABEL_IDX_MAP)
-    def parse_dw_yaml(self, yaml_file):
-        return self.__parse_roi_yaml_file(yaml_file, DW_ROI_LABEL_IDX_MAP)
-
-    def __parse_roi_yaml_file(self, yaml_file, roi_label_idx_map):
-        roi_dict = OrderedDict()
-
-        try:
-            with open(yaml_file) as file:
-                in_dict = yaml.full_load(file)
-        except FileNotFoundError:
-            mu.log("Error: The file '%s' does not exist." %
-               yaml_file, LogLevels.LOG_INFO)
-            in_dict = OrderedDict()
-
-        for roi_label, roi_dx in roi_label_idx_map.items():
-            if roi_label in in_dict.keys():
-                # found in yaml file
-                yaml_roi = in_dict[roi_label]
-                if "roi_type" in yaml_roi.keys():
-                    roi_type = yaml_roi["roi_type"]
-                    if roi_type == "sphere":
-                        # check all sphere fields are available and create Spherical ROI
-                        for field in ['roi_radius_mm', 'ctr_vox_coords']:
-                            if not (field in yaml_roi.keys()):
-                                mu.log("ROITemplate::__parse_roi_yaml_file(): skipping ROI(%s) no expected field '%s' "
-                                       "specified in yaml file : %s" % (roi_label, field, yaml_file), LogLevels.LOG_WARNING)
-                        roi_radius_mm = yaml_roi["roi_radius_mm"]
-                        ctr_vox_coords = yaml_roi["ctr_vox_coords"]
-                        assert isinstance(roi_radius_mm, float), "ROITemplate::__parse_roi_yaml_file(): " \
-                                                                 "roi_radius_mm expected datatype is float (not %s)" % \
-                                                                 type(roi_radius_mm)
-                        assert isinstance(ctr_vox_coords, list), "ROITemplate::__parse_roi_yaml_file(): " \
-                                                                 "ctr_vox_coords expected datatype is list (not %s)" % \
-                                                                 type(ctr_vox_coords)
-                        roi_dict[roi_dx] = ROISphere(roi_label, roi_dx, ctr_vox_coords, roi_radius_mm)
-                    if roi_type == "cylinder":
-                        # check all cylinder fields are available and create Cylindrical ROI
-                        for field in ['roi_radius_mm', 'ctr_vox_coords', 'roi_height_mm']:
-                            if not (field in yaml_roi.keys()):
-                                mu.log("ROITemplate::__parse_roi_yaml_file(): skipping ROI(%s) no expected field '%s' "
-                                       "specified in yaml file : %s" % (roi_label, field, yaml_file), LogLevels.LOG_WARNING)
-                        roi_radius_mm = yaml_roi["roi_radius_mm"]
-                        ctr_vox_coords = yaml_roi["ctr_vox_coords"]
-                        roi_height_mm = yaml_roi["roi_height_mm"]
-                        assert isinstance(roi_radius_mm, float), "ROITemplate::__parse_roi_yaml_file(): " \
-                                                                 "roi_radius_mm expected datatype is float (not %s)" % \
-                                                                 type(roi_radius_mm)
-                        assert isinstance(ctr_vox_coords, list), "ROITemplate::__parse_roi_yaml_file(): " \
-                                                                 "ctr_vox_coords expected datatype is list (not %s)" % \
-                                                                 type(ctr_vox_coords)
-                        assert isinstance(roi_height_mm, float), "ROITemplate::__parse_roi_yaml_file(): " \
-                                                                 "roi_height_mm expected datatype is float (not %s)" % \
-                                                                 type(roi_height_mm)
-                        roi_dict[roi_dx] = ROICylinder(roi_label, roi_dx, ctr_vox_coords, roi_radius_mm, roi_height_mm)
-                else:
-                    mu.log("ROITemplate::__parse_roi_yaml_file(): skipping ROI(%s) no field 'roi_type' "
-                           "specified in yaml file : %s" % (roi_label, yaml_file), LogLevels.LOG_WARNING)
-            else:
-                mu.log("ROITemplate::__parse_roi_yaml_file(): ROI(%s) not specified in yaml file : %s" %
-                       (roi_label, yaml_file), LogLevels.LOG_INFO)
-        # return the ROI dictionary
-        return roi_dict
-
-    def get_T1_mask_image(self):
-        return self.__get_mask_image(self.t1_roi_dict)
-    def get_T2_mask_image(self):
-        return self.__get_mask_image(self.t2_roi_dict)
-    def get_DW_mask_image(self):
-        return self.__get_mask_image(self.dw_roi_dict)
-    def __get_mask_image(self, roi_dict):
-        """
-        Create a template mask image of the same image grid as the template image
-        Args:
-            roi_dict (OrderedDict): with a roi_idx key and values of type ROI (supports ROISphere and ROICylinder)
-        Returns:
-            SimpleITK.Image: a template mask with 0 as background and ROIs with values as defined in points
-        """
-        # Create a numpy image array of zeros with the same size as the geometric image
-        fixed_geo_arr = sitk.GetArrayFromImage(self.image)
-        fixed_geo_spacing = np.array(self.image.GetSpacing())
-        mask_arr = np.zeros_like(fixed_geo_arr, dtype = np.uint16)
-        # Interogate ROIs to see what property maps are available, then create empty maps to be filled
-        prop_list = []
-        for roi_dx, roi in roi_dict.items():
-            for p in roi.properties:
-                if not (p in prop_list):
-                    prop_list.append(p)
-        prop_map_dict = OrderedDict()
-        for p in prop_list:
-            prop_map_dict[p] = np.zeros_like(fixed_geo_arr, dtype=float)
-        # Get each ROI to fill in its information in the mask array, and the property maps
-        for roi_dx, roi in roi_dict.items():
-            # rely on the concrete class to draw its own ROI on the mask image
-            roi.draw(mask_arr, fixed_geo_spacing, prop_map_dict)
-        # Convert the roi mask array to a simpleITK image with matched spatial properties to the
-        # fixed geometric image
-        masked_image = sitk.GetImageFromArray(mask_arr)
-        masked_image.SetOrigin(self.image.GetOrigin())
-        masked_image.SetDirection(self.image.GetDirection())
-        masked_image.SetSpacing(self.image.GetSpacing())
-        # Convert each of the property maps to a simpleITK image with matched spatial properties
-        # to the fixed geometric image
-        prop_image_dict = OrderedDict()
-        for p, arr in prop_map_dict.items():
-            prop_image = sitk.GetImageFromArray(arr)
-            prop_image.SetOrigin(self.image.GetOrigin())
-            prop_image.SetDirection(self.image.GetDirection())
-            prop_image.SetSpacing(self.image.GetSpacing())
-            prop_image_dict[p] = prop_image
-        return masked_image, prop_image_dict
-
-    def get_t1_slice_dx(self):
-        slice_vec = []
-        for roi in self.t1_roi_dict.values():
-            slice_vec.append(roi.get_slice_dx())
-        return int(np.median(np.array(slice_vec)))
-
-    def get_t2_slice_dx(self):
-        slice_vec = []
-        for roi in self.t2_roi_dict.values():
-            slice_vec.append(roi.get_slice_dx())
-        return int(np.median(np.array(slice_vec)))
-
-    def get_dw_slice_dx(self, slice_orient=OrientationOptions.AXI):
-        slice_vec = []
-        for roi in self.dw_roi_dict.values():
-            if slice_orient == OrientationOptions.AXI:
-                slice_vec.append(roi.get_slice_dx())
-            elif slice_orient == OrientationOptions.COR:
-                slice_vec.append(roi.get_cntr_cor_slice_dx())
-            elif slice_orient == OrientationOptions.SAG:
-                slice_vec.append(roi.get_cntr_sag_slice_dx())
-        return int(np.median(np.array(slice_vec)))
-    def get_t1_roi_values(self):
-        return list(self.t1_roi_dict.keys())
-    def get_t2_roi_values(self):
-        return list(self.t2_roi_dict.keys())
-    def get_dw_roi_values(self):
-        return list(self.dw_roi_dict.keys())
-
-
-
-class ROI(ABC):
-    def __init__(self, label, roi_index):
-        self.label = label
-        self.roi_index = roi_index
-        self.properties = []
-        assert self.roi_index in ROI_IDX_LABEL_MAP.keys(), "ROI::__init__: roi index is invalid, idx=%d" % self.roi_index
-
-    """
-    Draw the ROI into the passed mask array, marking the ROI with the global ROI index
-    - also generate template coordinates to associate with each point in space, to
-      allow the analysis of variation across the ROI (i.e. from the centre to the perimeter)
-      
-    The function adds data to the passed lbl array
-    - additionally, there is a returned dictionary of additional properties of the ROI
-      this has [key] -> [item] = [property_name] -> [value_at_location_array]
-    """
-    @abstractmethod
-    def draw(self, lbl_arr, spacing, prop_map_dict=None):
-        return None
-
-    @abstractmethod
-    def get_slice_dx(self):
-        return None
-
-    @abstractmethod
-    def get_cntr_cor_slice_dx(self):
-        return None
-
-    @abstractmethod
-    def get_cntr_sag_slice_dx(self):
-        return None
-
-class ROISphere(ROI):
-    def __init__(self, label, roi_index,
-                 ctr_vox_coords, radius_mm):
-        super().__init__(label, roi_index)
-        self.ctr_vox_coords = ctr_vox_coords
-        self.radius_mm = radius_mm
-        self.properties = ['radial_dist_mm', 'height_dist_mm']
-        mu.log("\t\tROISphere::__init__(): sphere (%d : %s) created!" % (roi_index, label), LogLevels.LOG_INFO)
-
-    def draw(self, lbl_arr, spacing, prop_map_dict=None):
-        # calculate how many voxels to achieve the radius
-        radius_vox = self.radius_mm / spacing
-        z, y, x = np.ogrid[:lbl_arr.shape[0],:lbl_arr.shape[1],:lbl_arr.shape[2]]
-        # Assigns the masked pixels in the copy image array to corresponding pixel values
-        distance_from_centre = np.sqrt(((x - self.ctr_vox_coords[0]) / radius_vox[0]) ** 2 +
-                                       ((y - self.ctr_vox_coords[1]) / radius_vox[1]) ** 2 +
-                                       ((z - self.ctr_vox_coords[2]) / radius_vox[2]) ** 2)
-        sphere_mask = distance_from_centre <= 1.0
-        # assign the label to the correct spatial location
-        lbl_arr[sphere_mask] = self.roi_index
-
-        if prop_map_dict is not None:
-            # record the radial distance (in mm) relative to the centre of the ROI
-            if 'radial_dist_mm' in prop_map_dict.keys():
-                distance_from_centre_mm = np.sqrt(((x - self.ctr_vox_coords[0]) * spacing[0]) ** 2 +
-                                                  ((y - self.ctr_vox_coords[1]) * spacing[1]) ** 2 +
-                                                  ((z - self.ctr_vox_coords[2]) * spacing[2]) ** 2)
-                prop_map_dict['radial_dist_mm'][sphere_mask] = distance_from_centre_mm[sphere_mask]
-            # record the vertical position (in mm) relative to the centre of the ROI
-            if 'height_dist_mm' in prop_map_dict.keys():
-                vertical_position_mm = (z - self.ctr_vox_coords[2]) * spacing[2] + (0.0 * x) + (0.0 * y)
-                prop_map_dict['height_dist_mm'][sphere_mask] = vertical_position_mm[sphere_mask]
-
-    def get_slice_dx(self):
-        return self.ctr_vox_coords[2]
-    def get_cntr_cor_slice_dx(self):
-        return self.ctr_vox_coords[1]
-    def get_cntr_sag_slice_dx(self):
-        return self.ctr_vox_coords[0]
-
-class ROICylinder(ROI):
-    def __init__(self, label, roi_index,
-                 ctr_vox_coords, radius_mm, height_mm):
-        super().__init__(label, roi_index)
-        self.ctr_vox_coords = ctr_vox_coords
-        self.radius_mm = radius_mm
-        self.height_mm = height_mm
-        self.properties = ['radial_dist_mm', 'height_dist_mm']
-        mu.log("\t\tROICylinder::__init__(): cylinder (%d : %s) created!" % (roi_index, label), LogLevels.LOG_INFO)
-
-    def draw(self, lbl_arr, spacing, prop_map_dict=None):
-        # calculate how many voxels to achieve the radius
-        radius_vox = self.radius_mm / spacing
-        height_vox = self.height_mm / spacing[2]
-        z, y, x = np.ogrid[:lbl_arr.shape[0],:lbl_arr.shape[1],:lbl_arr.shape[2]]
-        # Assigns the masked pixels in the copy image array to corresponding pixel values
-        distance_from_centre = np.sqrt(((x - self.ctr_vox_coords[0]) / radius_vox[0]) ** 2 +
-                                       ((y - self.ctr_vox_coords[1]) / radius_vox[1]) ** 2)
-        vertical_height_abs = np.abs((z - self.ctr_vox_coords[2]) / (height_vox/2.))
-        cylinder_mask = (distance_from_centre <= 1.0) & (vertical_height_abs <= 1.0)
-        # assign the label to the correct spatial location
-        lbl_arr[cylinder_mask] = self.roi_index
-
-        if prop_map_dict is not None:
-            # record the radial distance (in mm) relative to the centre of the ROI
-            if 'radial_dist_mm' in prop_map_dict.keys():
-                distance_from_centre_mm = np.sqrt(((x - self.ctr_vox_coords[0]) * spacing[0]) ** 2 +
-                                                  ((y - self.ctr_vox_coords[1]) * spacing[1]) ** 2) + (0.0 * z)
-                prop_map_dict['radial_dist_mm'][cylinder_mask] = distance_from_centre_mm[cylinder_mask]
-            # record the vertical position (in mm) relative to the centre of the ROI
-            if 'height_dist_mm' in prop_map_dict.keys():
-                vertical_position_mm = (z - self.ctr_vox_coords[2]) * spacing[2] + (0.0 * x) + (0.0 * y)
-                prop_map_dict['height_dist_mm'][cylinder_mask] = vertical_position_mm[cylinder_mask]
-
-    def get_slice_dx(self):
-        return self.ctr_vox_coords[2]
-    def get_cntr_cor_slice_dx(self):
-        return self.ctr_vox_coords[1]
-    def get_cntr_sag_slice_dx(self):
-        return self.ctr_vox_coords[0]
 
 
 class ROIDetector(object):
@@ -427,16 +157,17 @@ class ROIDetector(object):
 
     Attributes:
         target_geo_im (ImageSet.ImageGeometric): the target image on which we want to detect ROIs
-        reg_method (RegistrationMethodAbstract): the registration method to align the target and template images
+        detect_method (DetectionOptions): the detection method to link the target and template images
         fixed_geom_im (SimpleITK.Image): the template T1 weighted 3D MRI image
-        transform (SimpleITK.Transform): the estimated transform between the target image and template image
+        detector (DetectionMethodAbstract): the detection method to link the target and template images
     """
 
     def __init__(self,
                  target_geometry_image,
                  template_directory,
-                 registration_method=RegistrationOptions.TWOSTAGE_MSMEGS_CORELGD,
-                 partial_fov=False):
+                 detection_method=DetectionOptions.TWOSTAGE_MSEGS_CORELGD,
+                 partial_fov=False,
+                 kwargs=None):
         """
         Class constructor stores the target image, registration method choice and loads the template image.
 
@@ -449,677 +180,90 @@ class ROIDetector(object):
             "ROIDetector::init(): target_geometry_image is expected as a image_sets.ImageGeometric (not %s)" % \
             type(target_geometry_image)
         self.target_geo_im = target_geometry_image
-        self.reg_method = registration_method
+        self.detect_method = detection_method
         self.partial_fov = partial_fov
         self.roi_template = ROITemplate(template_directory)
-        self.fixed_geom_im = self.roi_template.image
+        self.fixed_geom_im = self.roi_template.get_image()
         assert isinstance(self.fixed_geom_im, sitk.Image), \
             "ROIDetector::init(): self.fixed_geom_im (template image) is expected as a SimpleITK image (not %s)" % \
             type(self.fixed_geom_im)
-        self.transform = None
+        self.kwargs = kwargs
+        self.detector = None
+
+    @staticmethod
+    def generate_detection_instance(reg_method, fixed_geom_im, target_geo_im, roi_template, partial_fov=False, kwargs=None):
+        rego = None
+        centre_images = not partial_fov
+        if reg_method == DetectionOptions.NONE:
+            rego = RegistrationNone(target_geo_im, fixed_geom_im, roi_template)
+        elif reg_method == DetectionOptions.COREL_GRADIENTDESCENT:
+            rego = RegistrationCorrelationGradientDescent(target_geo_im, fixed_geom_im, roi_template,
+                                                          centre_images=centre_images)
+        elif reg_method == DetectionOptions.MSE_GRIDSEARCH:
+            rego = RegistrationMSEGridSearch(target_geo_im, fixed_geom_im, roi_template)
+        elif reg_method == DetectionOptions.TWOSTAGE_MSEGS_CORELGD:
+            rego = RegistrationTwoStage(target_geo_im, fixed_geom_im, roi_template,
+                                        DetectionOptions.MSE_GRIDSEARCH,
+                                        DetectionOptions.COREL_GRADIENTDESCENT)
+        elif reg_method == DetectionOptions.MMI_GRADIENTDESCENT:
+            rego = RegistrationMutualInformationGradientDescent(target_geo_im, fixed_geom_im, roi_template,
+                                                                centre_images=centre_images)
+        elif reg_method == DetectionOptions.COREL_AXIGRID_NBEST_GRADIENTDESCENT:
+            rego = RegistrationAxialRotGridThenNBestGradDecnt(target_geo_im, fixed_geom_im, roi_template,
+                                                                centre_images=centre_images)
+        elif reg_method == DetectionOptions.SHAPE_DIFFUSION_NIST:
+            flip_cap_dir = False
+            debug_vis = False
+            if kwargs is not None:
+                if 'flip_cap_dir' in kwargs.keys():
+                    flip_cap_dir = kwargs['flip_cap_dir']
+                if 'debug_vis' in kwargs.keys():
+                    debug_vis = kwargs['debug_vis']
+            rego = ShapeDiffusionNIST(target_geo_im, fixed_geom_im, roi_template,
+                                      flip_cap_dir=flip_cap_dir,
+                                      debug_vis=debug_vis)
+        assert rego is not None, "ROIDetector::generate_detection_instance(): " \
+                                 "invalid detection method, %s" % str(reg_method)
+        return rego
 
     def detect(self):
         """ Detect the ROIs on the target image, by registering the target image to template image."""
-        rego = RegistrationMethodAbstract.generate_registration_instance(self.reg_method,
-                                                                         self.fixed_geom_im,
-                                                                         self.target_geo_im.get_image(),
-                                                                         self.partial_fov)
+        self.detector = ROIDetector.generate_detection_instance(self.detect_method,
+                                                                self.fixed_geom_im,
+                                                                self.target_geo_im,
+                                                                self.roi_template,
+                                                                self.partial_fov,
+                                                                self.kwargs)
         mu.log("ROIDetector::detect():",
                LogLevels.LOG_INFO)
-        mu.log("\t Iteration |   Metric   |   Optimizer Position",
-               LogLevels.LOG_INFO)
-        transform, metric = rego.register()
-        # store the transform for warping ROIs
-        self.transform = transform
+        self.detector.detect()
+
         # store the resulting masks on the geometric image
-        t1_mask, t1_prop_dict = self.get_detected_T1_mask()
+        t1_mask, t1_prop_dict = self.detector.get_detected_T1_mask()
         self.target_geo_im.set_T1_mask(t1_mask, t1_prop_dict)
-        t2_mask, t2_prop_dict = self.get_detected_T2_mask()
+        t2_mask, t2_prop_dict = self.detector.get_detected_T2_mask()
         self.target_geo_im.set_T2_mask(t2_mask, t2_prop_dict)
-        dw_mask, dw_prop_dict = self.get_detected_DW_mask()
+        dw_mask, dw_prop_dict = self.detector.get_detected_DW_mask()
         self.target_geo_im.set_DW_mask(dw_mask, dw_prop_dict)
 
-    def copy_registration(self, d):
+    def copy_detector(self, d):
         assert issubclass(type(d), ROIDetector), \
             "ROIDetector::copy_registration(d): d (the ROI detector being copied from) is expected as type ROIDetector (not %s)" % \
             type(d)
-        # copy the transform from the passed ROI detector
+        # copy the detection information from the passed ROI detector (shallow)
         #self.transform = copy.deepcopy(d.transform) # cant deepcopy a pyswig object
-        self.transform = None
-        if isinstance(d.transform, sitk.Euler3DTransform):
-            self.transform = sitk.Euler3DTransform(d.transform)
-        elif hasattr(sitk, "CompositeTransform") and isinstance(d.transform, sitk.CompositeTransform):
-            self.transform = sitk.CompositeTransform(d.transform)
-        elif hasattr(sitk, "Transform") and isinstance(d.transform, sitk.Transform):
-            self.transform = sitk.Transform(d.transform)
-        assert self.transform is not None, "ROIDetector::copy_registration(): " \
-                                           "unsupported sitk transform type, %s" % str(type(d.transform))
+        self.detector = d.detector # TODO: review this hack
+
         # store the resulting masks on the geometric image
-        t1_mask, t1_prop_dict = self.get_detected_T1_mask()
+        t1_mask, t1_prop_dict = self.detector.get_detected_T1_mask()
         self.target_geo_im.set_T1_mask(t1_mask, t1_prop_dict)
-        t2_mask, t2_prop_dict = self.get_detected_T2_mask()
+        t2_mask, t2_prop_dict = self.detector.get_detected_T2_mask()
         self.target_geo_im.set_T2_mask(t2_mask, t2_prop_dict)
-        dw_mask, dw_prop_dict = self.get_detected_DW_mask()
+        dw_mask, dw_prop_dict = self.detector.get_detected_DW_mask()
         self.target_geo_im.set_DW_mask(dw_mask, dw_prop_dict)
 
-
-    def get_detected_T1_mask(self):
-        """
-        Returns:
-            SimpleITK.Image: T1 mask in target image space, with 0 for background and 1-14 for detected ROIs
-        """
-        mu.log("ROIDetector::get_detected_T1_mask()", LogLevels.LOG_INFO)
-        target_im = self.target_geo_im.get_image()
-        fixed_t1_mask_im, prop_im_dict = self.get_fixed_T1_mask()
-        detected_t1_mask_im = self.__get_registered_mask(fixed_t1_mask_im, target_im)
-        detected_prop_im_dict = OrderedDict()
-        for p, prop_im in prop_im_dict.items():
-            detected_prop_im_dict[p] = self.__get_registered_mask(prop_im, target_im)
-        return detected_t1_mask_im, detected_prop_im_dict
-
-    def get_detected_T2_mask(self):
-        """
-        Returns:
-            SimpleITK.Image: T2 mask  in target image space, with 0 for background and 15-28 for detected ROIs
-        """
-        mu.log("ROIDetector::get_detected_T2_mask()", LogLevels.LOG_INFO)
-        target_im = self.target_geo_im.get_image()
-        fixed_t2_mask_im, prop_im_dict = self.get_fixed_T2_mask()
-        detected_t2_mask_im = self.__get_registered_mask(fixed_t2_mask_im, target_im)
-        detected_prop_im_dict = OrderedDict()
-        for p, prop_im in prop_im_dict.items():
-            detected_prop_im_dict[p] = self.__get_registered_mask(prop_im, target_im)
-        return detected_t2_mask_im, detected_prop_im_dict
-
-    def get_detected_DW_mask(self):
-        """
-        Returns:
-            SimpleITK.Image: DW mask  in target image space, with 0 for background and 29-41 for detected ROIs
-        """
-        mu.log("ROIDetector::get_detected_DW_mask()", LogLevels.LOG_INFO)
-        target_im = self.target_geo_im.get_image()
-        fixed_dw_mask_im, prop_im_dict = self.get_fixed_DW_mask()
-        detected_dw_mask_im = self.__get_registered_mask(fixed_dw_mask_im, target_im)
-        detected_prop_im_dict = OrderedDict()
-        for p, prop_im in prop_im_dict.items():
-            detected_prop_im_dict[p] = self.__get_registered_mask(prop_im, target_im)
-        return detected_dw_mask_im, detected_prop_im_dict
-
-    def get_fixed_T1_mask(self):
-        """
-        Returns:
-            SimpleITK.Image: T1 mask in template image space, with 0 for background and 1-14 for detected ROIs
-        """
-        mu.log("ROIDetector::get_fixed_T1_mask()", LogLevels.LOG_INFO)
-        return self.roi_template.get_T1_mask_image()
-
-    def get_fixed_T2_mask(self):
-        """
-        Returns:
-            SimpleITK.Image: T2 mask  in template image space, with 0 for background and 15-28 for detected ROIs
-        """
-        mu.log("ROIDetector::get_fixed_T2_mask()", LogLevels.LOG_INFO)
-        return self.roi_template.get_T2_mask_image()
-
-    def get_fixed_DW_mask(self):
-        """
-        Returns:
-            SimpleITK.Image: DW mask  in template image space, with 0 for background and 29-41 for detected ROIs
-        """
-        mu.log("ROIDetector::get_fixed_DW_mask()", LogLevels.LOG_INFO)
-        return self.roi_template.get_DW_mask_image()
-
-    def visualise_fixed_T1_rois(self, ax=None):
-        t1_fixed_im_mask, prop_im_dict = self.get_fixed_T1_mask()
-        t1_slice_dx = self.roi_template.get_t1_slice_dx()
-        t1_roi_values = list(T1_ROI_LABEL_IDX_MAP.values())
-        self.__visualise_rois(self.fixed_geom_im, t1_fixed_im_mask, t1_slice_dx, t1_roi_values, ax=ax,
-                              title="T1 (template)")
-
-    def visualise_fixed_T2_rois(self, ax=None):
-        t2_fixed_im_mask, prop_im_dict = self.get_fixed_T2_mask()
-        t2_slice_dx = self.roi_template.get_t2_slice_dx()
-        t2_roi_values = list(T2_ROI_LABEL_IDX_MAP.values())
-        self.__visualise_rois(self.fixed_geom_im, t2_fixed_im_mask, t2_slice_dx, t2_roi_values, ax=ax,
-                              title="T2 (template)")
-
-    def visualise_fixed_DW_rois(self, ax=None, slice_orient=OrientationOptions.AXI):
-        dw_fixed_im_mask, prop_im_dict = self.get_fixed_DW_mask()
-        dw_slice_dx = self.roi_template.get_dw_slice_dx(slice_orient)
-        dw_roi_values = list(DW_ROI_LABEL_IDX_MAP.values())
-        self.__visualise_rois(self.fixed_geom_im, dw_fixed_im_mask, dw_slice_dx, dw_roi_values, slice_orient, ax=ax,
-                              title="DW (template)")
-
-    def visualise_detected_T1_rois(self, ax=None):
-        t1_roi_values = list(T1_ROI_LABEL_IDX_MAP.values())
-        t1_mask, t1_prop_dict = self.get_detected_T1_mask()
-        self.__visualise_transformed_rois(t1_mask,
-                                          self.roi_template.get_t1_slice_dx(),
-                                          t1_roi_values, ax=ax,
-                                          title="T1 (detected)")
-
-    def visualise_detected_T2_rois(self, ax=None):
-        t2_roi_values = list(T2_ROI_LABEL_IDX_MAP.values())
-        t2_mask, t2_prop_dict = self.get_detected_T2_mask()
-        self.__visualise_transformed_rois(t2_mask,
-                                          self.roi_template.get_t2_slice_dx(),
-                                          t2_roi_values, ax=ax,
-                                          title="T2 (detected)")
-
-    def visualise_detected_DW_rois(self, ax=None, slice_orient=OrientationOptions.AXI):
-        dw_roi_values = list(DW_ROI_LABEL_IDX_MAP.values())
-        dw_mask, dw_prop_dict = self.get_detected_DW_mask()
-        self.__visualise_transformed_rois(dw_mask,
-                                          self.roi_template.get_dw_slice_dx(slice_orient),
-                                          dw_roi_values, slice_orient,
-                                          ax=ax,
-                                          title="DW (detected)")
-
-    def visualise_T1_registration(self, pre_reg_ax=None, post_reg_ax=None, invert_moving=True):
-        self.__visualise_registration(self.roi_template.get_t1_slice_dx(),
-                                      pre_reg_ax=pre_reg_ax, post_reg_ax=post_reg_ax,
-                                      invert_moving=invert_moving,
-                                      title="T1")
-
-    def visualise_T2_registration(self, pre_reg_ax=None, post_reg_ax=None, invert_moving=True):
-        self.__visualise_registration(self.roi_template.get_t2_slice_dx(),
-                                      pre_reg_ax=pre_reg_ax, post_reg_ax=post_reg_ax,
-                                      invert_moving=invert_moving,
-                                      title="T2")
-
-    def visualise_DW_registration(self,
-                                  pre_reg_ax=None, post_reg_ax=None,
-                                  invert_moving=True, slice_orient=OrientationOptions.AXI):
-        self.__visualise_registration(self.roi_template.get_dw_slice_dx(slice_orient),
-                                      slice_orient=slice_orient,
-                                      pre_reg_ax=pre_reg_ax, post_reg_ax=post_reg_ax,
-                                      invert_moving=invert_moving,
-                                      title="DW")
-
-
-    # same output as log but to pdf
     def write_pdf_summary_page(self, c, sup_title=None):
-        table_width = 170
-        pdf = mu.PDFSettings()
-        c.setFont(pdf.font_name, pdf.small_font_size)  # set to a fixed width font
-
-        if sup_title is None:
-            sup_title = "ROI Detection: Summary <%s>" % self.target_geo_im.get_label()
-
-        # draw the summary figure
-        # -----------------------------------------------------------
-        # setup figure
-        f = None
-        if self.roi_template.dw_roi_dict:
-            f, ((ax1, ax2, ax3, ax4), (ax5, ax6, ax7, ax8)) = plt.subplots(2, 4)
-            f.suptitle(sup_title)
-            f.set_size_inches(14, 6)
-            #draw the template rois on the template image
-            self.visualise_fixed_DW_rois(ax=ax1)
-            self.visualise_fixed_DW_rois(ax=ax5, slice_orient=OrientationOptions.SAG)
-            #draw the registration (pre/post)
-            self.visualise_DW_registration(invert_moving=False, pre_reg_ax=ax2, post_reg_ax=ax3)
-            self.visualise_DW_registration(invert_moving=False, pre_reg_ax=ax6, post_reg_ax=ax7,
-                                           slice_orient=OrientationOptions.SAG)
-            #visualise the transfromed ROI masks on the target image
-            self.visualise_detected_DW_rois(ax=ax4)
-            self.visualise_detected_DW_rois(ax=ax8, slice_orient=OrientationOptions.SAG)
-
-        if self.roi_template.t1_roi_dict:
-            f, ((ax1, ax2, ax3, ax4), (ax5, ax6, ax7, ax8)) = plt.subplots(2, 4)
-            f.suptitle(sup_title)
-            f.set_size_inches(14, 6)
-            # draw the template rois on the template image
-            self.visualise_fixed_T1_rois(ax=ax1)
-            self.visualise_fixed_T2_rois(ax=ax5)
-            # draw the registration (pre/post)
-            self.visualise_T1_registration(invert_moving=False, pre_reg_ax=ax2, post_reg_ax=ax3)
-            self.visualise_T2_registration(invert_moving=False, pre_reg_ax=ax6, post_reg_ax=ax7)
-            # visualise the transfromed ROI masks on the target image
-            self.visualise_detected_T1_rois(ax=ax4)
-            self.visualise_detected_T2_rois(ax=ax8)
-
-        if f is not None:
-        # draw it on the pdf
-            pil_f = mu.mplcanvas_to_pil(f)
-            width, height = pil_f.size
-            height_3d, width_3d = pdf.page_width * (height / width), pdf.page_width
-            c.drawImage(ImageReader(pil_f),
-                        0,
-                        pdf.page_height - pdf.top_margin - height_3d - pdf.line_width,
-                        width_3d,
-                        height_3d)
-            plt.close(f)
-
-        c.showPage()  # new page
-
-    def __visualise_registration(self, slice_dx, slice_orient=OrientationOptions.AXI,
-                                 pre_reg_ax=None, post_reg_ax=None, invert_moving=True, title=None):
-        """
-        Visualise the image registration with a checkerboard of the fixed and moving images. This function creates
-        two checkerboard comparisons; the first with the unregistered target image and the second with the registered
-        target image.
-
-        Args:
-            slice_dx (int): index of slice to display
-            pre_reg_ax (matplotlib.axes): axes to plot the target image prior to registration
-            post_reg_ax (matplotlib.axes): axes to plot the target image after registration
-            invert_moving (bool): invert the image intensity of the moving image
-            title (string): a title for the subplots
-        """
-        if (pre_reg_ax is None) or (post_reg_ax is None):
-            f, (pre_reg_ax, post_reg_ax) = plt.subplots(1, 2)
-
-        # pre-registration
-        # resample the target image and mask - onto the deformed fixed space
-        # (so we can use the reference ROI slice for visualisation)
-        fixed_im = self.fixed_geom_im
-        target_pre_im = sitk.Resample(self.target_geo_im.get_image(),
-                                      fixed_im,
-                                      sitk.Euler3DTransform(), sitk.sitkLinear)
-        if invert_moving:
-            target_pre_im = sitk.InvertIntensity(target_pre_im, maximum=inversion_max)
-        
-        fixed_im_pixel_type = fixed_im.GetPixelID()
-        target_pre_im_match_type = sitk.Cast(target_pre_im, fixed_im_pixel_type)
-        checker_im = sitk.CheckerBoard(fixed_im, target_pre_im_match_type, [4, 4, 4])
-
-        # pull out the relevant slice based on orientation
-        def get_slice_and_extent(im, dx, orient):
-            im_slice, extent = None, [0, 0, 0, 0]
-            im_arr = sitk.GetArrayFromImage(im)
-            im_spacing = np.flip(np.array(im.GetSpacing()))
-            if orient == OrientationOptions.AXI:
-                im_slice = im_arr[dx, :, :]
-                extent = [0, im_arr.shape[2] * im_spacing[2], 0, im_arr.shape[1] * im_spacing[1]]
-            elif orient == OrientationOptions.COR:
-                im_slice = im_arr[:, dx, :]
-                extent = [0, im_arr.shape[2] * im_spacing[2], 0, im_arr.shape[0] * im_spacing[0]]
-            elif orient == OrientationOptions.SAG:
-                im_slice = im_arr[:, :, dx]
-                extent = [0, im_arr.shape[1] * im_spacing[1], 0, im_arr.shape[0] * im_spacing[0]]
-            assert im_slice is not None, "ROIDetector::__visualise_registration() : " \
-                                         "expected slice_orient parameter of AXI, COR, or SAG [not %s]" % slice_orient
-            return im_slice, extent
-
-        im_slice, extent = get_slice_and_extent(checker_im, slice_dx, slice_orient)
-        vmin = np.mean(im_slice) - 1.0 * np.std(im_slice)
-        vmax = np.mean(im_slice) + 2.0 * np.std(im_slice)
-        pre_reg_ax.imshow(im_slice, cmap='gray', vmin=vmin, vmax=vmax, extent=extent)
-
-
-        # post-registration
-        rotated_fixed_im = self.__get_rotated_sampling_im()
-        # resample the target image and mask - onto the deformed fixed space
-        # (so we can use the reference ROI slice for visualisation)
-        target_im = sitk.Resample(self.target_geo_im.get_image(),
-                                  rotated_fixed_im,
-                                  sitk.Euler3DTransform(), sitk.sitkLinear)
-        if invert_moving:
-            target_im = sitk.InvertIntensity(target_im, maximum=inversion_max)
-
-        rotated_fixed_im_pixel_type = rotated_fixed_im.GetPixelID()
-        target_im_match_type = sitk.Cast(target_im, rotated_fixed_im_pixel_type)
-        checker_im_reg = sitk.CheckerBoard(rotated_fixed_im, target_im_match_type, [4, 4, 4])
-        im_slice, extent = get_slice_and_extent(checker_im_reg, slice_dx, slice_orient)
-        post_reg_ax.imshow(im_slice, cmap='gray', vmin=vmin, vmax=vmax, extent=extent)
-        for ax in [pre_reg_ax, post_reg_ax]:
-            ax.axis('off')
-        if title is not None:
-            pre_reg_ax.set_title("%s un-registered" % title)
-            post_reg_ax.set_title("%s registered" % title)
-        #plt.pause(0.01)
-
-
-    def __get_registered_mask(self, src_mask, target_im):
-        """
-        Warp and resample a template mask onto the target image.
-
-        Args:
-            src_mask (SimpleITK.Image): a template mask to warp and resample
-            target_im (SimpleITK.Image): a target image to specify the resampling grid
-
-        Returns:
-            SimpleITK.Image: the template mask warped and resampled into the target image space
-        """
-        if self.transform is None:
-            mu.log("\tROIDetector::__get_registered_mask() : no transform found, need to run detect() function",
-                   LogLevels.LOG_WARNING)
-            return None
-        return sitk.Resample(src_mask, target_im, sitk.Transform.GetInverse(self.transform), sitk.sitkNearestNeighbor)
-
-
-    def __get_rotated_sampling_im(self):
-        """
-        Transform the template image into the target image space. This is useful for visualisation, was the template
-        landmarks such as a reference T1 or T2 slice can then be sampled in the estimated/registered target space.
-
-        Returns:
-            SimpleITK.Image: The template image transformed (but not resampled) into the target image space
-        """
-        if self.transform is None:
-            mu.log("ROIDetector::__get_rotated_sampling_im() : no transform found, need to run detect() function",
-                   LogLevels.LOG_WARNING)
-            return None
-        # transform the reference geometry into the target space
-        inv_transform = self.transform  # sitk.Transform.GetInverse(self.transform)
-        # deep copy the reference image
-        rotated_geom_im = sitk.GetImageFromArray(sitk.GetArrayFromImage(self.fixed_geom_im))
-        rotated_geom_im.SetSpacing(self.fixed_geom_im.GetSpacing())
-        rotated_geom_im.SetOrigin(self.fixed_geom_im.GetOrigin())
-        rotated_geom_im.SetDirection(self.fixed_geom_im.GetDirection())
-        # transform the origin
-        o_new = inv_transform.TransformPoint(rotated_geom_im.GetOrigin())
-        # transform the direction matrix
-        d = rotated_geom_im.GetDirection()
-        d_0 = [d[0], d[3], d[6]]
-        d_1 = [d[1], d[4], d[7]]
-        d_2 = [d[2], d[5], d[8]]
-        d_0_rot = inv_transform.TransformVector(d_0, (0.0, 0.0, 0.0))
-        d_1_rot = inv_transform.TransformVector(d_1, (0.0, 0.0, 0.0))
-        d_2_rot = inv_transform.TransformVector(d_2, (0.0, 0.0, 0.0))
-        d_new = np.zeros_like(d)
-        d_new[0] = d_0_rot[0]
-        d_new[1] = d_1_rot[0]
-        d_new[2] = d_2_rot[0]
-        d_new[3] = d_0_rot[1]
-        d_new[4] = d_1_rot[1]
-        d_new[5] = d_2_rot[1]
-        d_new[6] = d_0_rot[2]
-        d_new[7] = d_1_rot[2]
-        d_new[8] = d_2_rot[2]
-        # debug (remove)
-        # print("origin: ", rotated_geom_im.GetOrigin())
-        # print("direction: ", rotated_geom_im.GetDirection())
-        # print("origin (new):", o_new)
-        # print("direction (new): ", d_new)
-        # re-orient and locate the image for resampling
-        rotated_geom_im.SetOrigin(o_new)
-        rotated_geom_im.SetDirection(d_new)
-        return rotated_geom_im
-
-    def __visualise_transformed_rois(self, mask_im,
-                                     slice_dx, roi_list,
-                                     slice_orient=OrientationOptions.AXI,
-                                     ax=None,
-                                     title=None):
-        if self.transform is None:
-            mu.log("ROIDetector::visualise_detected_T1_rois() : no transform found, need to run detect() function",
-                   LogLevels.LOG_WARNING)
-            return None
-        rotated_geom_im = self.__get_rotated_sampling_im()
-        # resample the target image and mask - onto the deformed fixed space
-        # (so we can use the reference ROI slice for visualisation)
-        geo_im = sitk.Resample(self.target_geo_im.get_image(), rotated_geom_im,
-                               sitk.Euler3DTransform(), sitk.sitkLinear)
-        roi_im = sitk.Resample(mask_im, rotated_geom_im,
-                               sitk.Euler3DTransform(), sitk.sitkNearestNeighbor)
-        self.__visualise_rois(geo_im, roi_im, slice_dx, roi_list, slice_orient, ax=ax, title=title)
-
-
-    def __visualise_rois(self, im, roi_map,
-                         slice_dx, roi_list,
-                         slice_orient=OrientationOptions.AXI,
-                         ax=None,
-                         title=None):
-        """
-        Show a greyscale image and overlay coloured ROIs.
-
-        Args:
-            im_arr (SimpleITK.Image): a 3D image
-            roi_arr (SimpleITK.Image): a 3D roi map (0 as background, non-zero as regions of interest)
-            slice_dx (int): an index of the 2D slice / image to display (0th dimension of the image and roi arrays)
-            roi_list (list): a list of ROI indexes in the ROI array
-            ax (matplotlib.axes): the axes to draw the image and ROI overlay
-            title (string): a title to label the axes
-        """
-        # get arrays from images
-        im_arr = sitk.GetArrayFromImage(im)
-        roi_arr = sitk.GetArrayFromImage(roi_map)
-        # get image spacing
-        im_spacing = np.flip(np.array(im.GetSpacing()))
-        # pull out the relevant slice based on orientation
-        roi_slice, im_slice, extent = None, None, [0, 0, 0, 0]
-        if slice_orient == OrientationOptions.AXI:
-            roi_slice = roi_arr[slice_dx, :, :]
-            im_slice = im_arr[slice_dx, :, :]
-            extent = [0, im_arr.shape[2]*im_spacing[2], 0, im_arr.shape[1]*im_spacing[1]]
-        elif slice_orient == OrientationOptions.COR:
-            roi_slice = roi_arr[:, slice_dx, :]
-            im_slice = im_arr[:, slice_dx, :]
-            extent = [0, im_arr.shape[2]*im_spacing[2], 0, im_arr.shape[0]*im_spacing[0]]
-        elif slice_orient == OrientationOptions.SAG:
-            roi_slice = roi_arr[:, :, slice_dx]
-            im_slice = im_arr[:, :, slice_dx]
-            extent = [0, im_arr.shape[1]*im_spacing[1], 0, im_arr.shape[0]*im_spacing[0]]
-        assert roi_slice is not None, "ROIDetector::__visualise_rois() : " \
-                                      "expected slice_orient parameter of AXI, COR, or SAG [not %s]" % slice_orient
-        # plot
-        if ax is None:
-            f, ax = plt.subplots(1, 1)
-        ax.imshow(im_slice, cmap='gray',
-                  vmin=np.mean(im_slice)-1.0*np.std(im_slice),
-                  vmax=np.mean(im_slice)+2.0*np.std(im_slice),
-                  extent=extent)
-        i = ax.imshow(np.ma.masked_where(roi_slice == 0, roi_slice),
-                      cmap='nipy_spectral', vmin=np.min(roi_list)-1, vmax=np.max(roi_list)+1,
-                      interpolation='none',
-                      alpha=0.7,
-                      extent=extent)
-        ax.axis('off')
-        ticks = list(range(np.min(roi_list), np.max(roi_list)+1))
-        ticklabels = [ROI_IDX_LABEL_MAP[x] for x in ticks]
-        cb = plt.colorbar(mappable=i, ax=ax,
-                     ticks=ticks)
-        cb.set_ticklabels(ticklabels=ticklabels)
-        if title is not None:
-            ax.set_title(title)
-        #plt.pause(0.01)
-
-
-
-
-class RegistrationMethodAbstract(ABC):
-    def __init__(self, fixed_image, moving_image):
-        self.fixed_im = fixed_image
-        self.moving_im = moving_image
-
-    @abstractmethod
-    def register(self):
-        return None, None
-
-    @staticmethod
-    def generate_registration_instance(reg_method, fixed_geom_im, target_geo_im, partial_fov=False):
-        rego = None
-        centre_images = not partial_fov
-        if reg_method == RegistrationOptions.NONE:
-            rego = RegistrationNone(fixed_geom_im, target_geo_im)
-        elif reg_method == RegistrationOptions.COREL_GRADIENTDESCENT:
-            rego = RegistrationCorrelationGradientDescent(fixed_geom_im, target_geo_im,
-                                                          centre_images=centre_images)
-        elif reg_method == RegistrationOptions.MSME_GRIDSEARCH:
-            rego = RegistrationMSMEGridSearch(fixed_geom_im, target_geo_im)
-        elif reg_method == RegistrationOptions.TWOSTAGE_MSMEGS_CORELGD:
-            rego = RegistrationTwoStage(fixed_geom_im, target_geo_im,
-                                        RegistrationOptions.MSME_GRIDSEARCH,
-                                        RegistrationOptions.COREL_GRADIENTDESCENT)
-        elif reg_method == RegistrationOptions.MMI_GRADIENTDESCENT:
-            rego = RegistrationMutualInformationGradientDescent(fixed_geom_im, target_geo_im,
-                                                                centre_images=centre_images)
-        assert rego is not None, "RegistrationMethodAbstract::generate_registration_instance(): " \
-                                 "invalid registration method, %s" % str(reg_method)
-        return rego
-
-    def print_iteration_info(self, method):
-        mu.log("\t\t{0:3} = {1:10.5f} : {2}".format(method.GetOptimizerIteration(),
-                                                    method.GetMetricValue(),
-                                                    method.GetOptimizerPosition()),
-               LogLevels.LOG_INFO)
-
-
-
-class RegistrationTwoStage(RegistrationMethodAbstract):
-    def __init__(self, fixed_image, moving_image,
-                 stage_a_registration_method=RegistrationOptions.MSME_GRIDSEARCH,
-                 stage_b_registration_method=RegistrationOptions.COREL_GRADIENTDESCENT,
-                 partial_fov_a=False,
-                 partial_fov_b=False):
-        super().__init__(fixed_image, moving_image)
-        mu.log("RegistrationTwoStage::init()", LogLevels.LOG_INFO)
-        self.stage_a_registration_method = stage_a_registration_method
-        self.stage_b_registration_method = stage_b_registration_method
-        self.stage_a_rego = RegistrationMethodAbstract.generate_registration_instance(stage_a_registration_method,
-                                                                                      fixed_image, moving_image,
-                                                                                      partial_fov_a)
-        self.stage_b_rego = None
-        self.partial_fov_a = partial_fov_a
-        self.partial_fov_b = partial_fov_b
-
-
-    def register(self):
-        # stage A registration
-        trans_a, metric_a = self.stage_a_rego.register()
-        trans_image_a = sitk.Resample(self.moving_im, self.fixed_im, trans_a, sitk.sitkLinear)
-        # stage B registration
-        self.stage_b_rego = RegistrationMethodAbstract.generate_registration_instance(self.stage_b_registration_method,
-                                                                                      self.fixed_im, trans_image_a,
-                                                                                      self.partial_fov_b)
-        trans_b, metric_b = self.stage_b_rego.register()
-        # compose the final transform
-        combined_transform = None
-        if hasattr(sitk, "CompositeTransform"):
-            combined_transform = sitk.CompositeTransform(trans_a)
-        elif hasattr(sitk, "Transform"):
-            combined_transform = sitk.Transform(trans_a)
-        else:
-            mu.log("RegistrationTwoStage::register(): unable to locate simpleITK multi-stage transform", LogLevels.LOG_ERROR)
-            assert False
-        combined_transform.AddTransform(trans_b)
-        return combined_transform, metric_b
-
-
-class RegistrationNone(RegistrationMethodAbstract):
-    def __init__(self, fixed_image, moving_image):
-        super().__init__(fixed_image, moving_image)
-        mu.log("RegistrationNone::init()", LogLevels.LOG_INFO)
-
-    def register(self):
-        metric_value = 0
-        final_transform = sitk.Euler3DTransform()
-        return final_transform, metric_value
-
-class RegistrationCorrelationGradientDescent(RegistrationMethodAbstract):
-    def __init__(self, fixed_image, moving_image,
-                 centre_images=True):
-        super().__init__(fixed_image, moving_image)
-        mu.log("RegistrationCorrelationGradientDescent::init()", LogLevels.LOG_INFO)
-        self.centre_images = centre_images
-
-    def register(self):
-        moving = sitk.Cast(self.moving_im, sitk.sitkFloat32)
-        fixed = sitk.Cast(self.fixed_im, sitk.sitkFloat32)
-
-        # setup the registration method
-        R = sitk.ImageRegistrationMethod()
-        R.SetMetricAsCorrelation()
-        R.SetMetricSamplingPercentage(0.01)
-        R.SetMetricSamplingStrategy(R.RANDOM)
-        R.SetOptimizerAsRegularStepGradientDescent(learningRate=1.0,
-                                                   numberOfIterations=1000,
-                                                   minStep=0.000001)
-        R.SetOptimizerScalesFromPhysicalShift()
-        # centre as initial transform
-        initial_transform = sitk.Euler3DTransform()
-        if self.centre_images:
-            initial_transform = sitk.CenteredTransformInitializer(fixed, moving, sitk.Euler3DTransform(),
-                                                                  sitk.CenteredTransformInitializerFilter.GEOMETRY)
-        R.SetInitialTransform(initial_transform)
-        R.SetInterpolator(sitk.sitkLinear)
-        # hook up a logger
-        R.AddCommand(sitk.sitkIterationEvent, lambda: self.print_iteration_info(R))
-        # register
-        final_transform = R.Execute(fixed, moving)
-        return final_transform, R.GetMetricValue()
-
-
-class RegistrationMutualInformationGradientDescent(RegistrationMethodAbstract):
-    def __init__(self, fixed_image, moving_image,
-                 centre_images=True):
-        super().__init__(fixed_image, moving_image)
-        mu.log("RegistrationCorrelationGradientDescent::init()", LogLevels.LOG_INFO)
-        self.centre_images = centre_images
-
-    def register(self):
-        moving = sitk.Cast(self.moving_im, sitk.sitkFloat32)
-        fixed = sitk.Cast(self.fixed_im, sitk.sitkFloat32)
-        # setup the registration method
-        R = sitk.ImageRegistrationMethod()
-        R.SetMetricAsMattesMutualInformation(numberOfHistogramBins=50)
-        R.SetMetricSamplingPercentage(0.25)
-        R.SetMetricSamplingStrategy(R.RANDOM)
-        # R.SetOptimizerAsRegularStepGradientDescent(learningRate=1.0,
-        #                                            numberOfIterations=5000,
-        #                                            minStep=0.000001)
-        R.SetOptimizerAsGradientDescent(learningRate=1.0,
-                                        numberOfIterations=1000)
-                                        #double convergenceMinimumValue=1e-6)
-        R.SetOptimizerScalesFromPhysicalShift()
-        # centre as initial transform
-        initial_transform = sitk.Euler3DTransform()
-        if self.centre_images:
-            initial_transform = sitk.CenteredTransformInitializer(fixed, moving, sitk.Euler3DTransform(),
-                                                                  sitk.CenteredTransformInitializerFilter.GEOMETRY)
-        R.SetInitialTransform(initial_transform)
-        R.SetInterpolator(sitk.sitkLinear)
-        # hook up a logger
-        R.AddCommand(sitk.sitkIterationEvent, lambda: self.print_iteration_info(R))
-        # register
-        final_transform = R.Execute(fixed, moving)
-        return final_transform, R.GetMetricValue()
-
-
-class RegistrationMSMEGridSearch(RegistrationMethodAbstract):
-    def __init__(self, fixed_image, moving_image):
-        super().__init__(fixed_image, moving_image)
-        mu.log("RegistrationMSMEGridSearch::init()", LogLevels.LOG_INFO)
-
-    def register(self):
-        moving = sitk.Cast(self.moving_im, sitk.sitkFloat32)
-        fixed = sitk.Cast(self.fixed_im, sitk.sitkFloat32)
-        # normalise images intensity ranges
-        moving = sitk.Normalize(moving)
-        fixed = sitk.Normalize(fixed)
-        # setup the registration method
-        R = sitk.ImageRegistrationMethod()
-        R.SetMetricAsMeanSquares()
-        R.SetMetricSamplingPercentage(0.001)
-        R.SetMetricSamplingStrategy(R.REGULAR)
-        # Number of samples for each rotational axis, 360 divided by this number gives you the angle 'incremented'
-        sample_per_axis = 24 # 24 is the default
-        # Note: Order of parameters is ( x-rotation, y-rotation, z-rotation, x, y, z)
-        R.SetOptimizerAsExhaustive([sample_per_axis // 2, sample_per_axis // 2, sample_per_axis // 4,
-                                    0, 0, 0])
-        R.SetOptimizerScales(
-            [2.0 * np.pi / sample_per_axis, 2.0 * np.pi / sample_per_axis, 2.0 * np.pi / sample_per_axis,
-             1.0, 1.0, 1.0])
-        # centre as initial transform
-        initial_transform = sitk.CenteredTransformInitializer(fixed, moving, sitk.Euler3DTransform(),
-                                                              sitk.CenteredTransformInitializerFilter.GEOMETRY)
-        R.SetInitialTransform(initial_transform)
-        R.SetInterpolator(sitk.sitkLinear)
-        # hook up a logger (too much output and won't show convergance as it is a grid search)
-        # R.AddCommand(sitk.sitkIterationEvent, lambda: self.print_iteration_info(R))
-        # register
-        final_transform = R.Execute(fixed, moving)
-        # output the best transform of the grid search
-        mu.log("\t\t{0:3} = {1:10.5f} : {2}".format(R.GetOptimizerIteration(),
-                                                    R.GetMetricValue(),
-                                                    final_transform),
-               LogLevels.LOG_INFO)
-        return final_transform, R.GetMetricValue()
-
-
-
+        self.detector.write_pdf_summary_page(c, sup_title=None)
 
 
 

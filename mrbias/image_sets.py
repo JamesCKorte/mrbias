@@ -127,7 +127,7 @@ class ImageSetAbstract(ABC):
                  measurement_variable_units,
                  repetition_time_list,
                  geometry_image=None,
-                 series_instance_UIDs=None,
+                 series_instance_UIDs=None, series_numbers=None,
                  bits_allocated=None, bits_stored=None,
                  rescale_slope_list=None, rescale_intercept_list=None,
                  scale_slope_list=None, scale_intercept_list=None,
@@ -143,6 +143,7 @@ class ImageSetAbstract(ABC):
         self.repetition_time_list = repetition_time_list
         self.geometry_image = geometry_image
         self.series_instance_UIDs = series_instance_UIDs
+        self.series_numbers = series_numbers
         self.roi_image = None
         self.roi_pmap_dict = None
         self.derived_pmap_list = None # this is for derived parameter maps which are calculated on the MRI scanner such as ADC maps
@@ -356,23 +357,27 @@ class ImageSetAbstract(ABC):
                                 width_ratios=[1, 2], hspace=0.5)
 
         gs00 = gridspec.GridSpecFromSubplotSpec(1, 1, subplot_spec=gs0[:, 0])
-        gs01 = gridspec.GridSpecFromSubplotSpec(2, rois_per_row, subplot_spec=gs0[0, 1],
-                                                hspace=0.01, wspace=0.01)
-        gs02 = gridspec.GridSpecFromSubplotSpec(2, rois_per_row, subplot_spec=gs0[1, 1],
-                                                hspace=0.01, wspace=0.01)
+        if n_rois:
+            gs01 = gridspec.GridSpecFromSubplotSpec(2, rois_per_row, subplot_spec=gs0[0, 1],
+                                                    hspace=0.01, wspace=0.01)
+            gs02 = gridspec.GridSpecFromSubplotSpec(2, rois_per_row, subplot_spec=gs0[1, 1],
+                                                    hspace=0.01, wspace=0.01)
         # make the main image axes
         ax_glob = f.add_subplot(gs00[:, :])
         # and for the zoom axes
-        ax_row_1a = [f.add_subplot(gs01[0, x]) for x in range(rois_per_row)]
-        ax_row_1b = [f.add_subplot(gs01[1, x]) for x in range(rois_per_row)]
-        ax_row_2a = [f.add_subplot(gs02[0, x]) for x in range(rois_per_row)]
-        ax_row_2b = [f.add_subplot(gs02[1, x]) for x in range(rois_per_row)]
+        if n_rois:
+            ax_row_1a = [f.add_subplot(gs01[0, x]) for x in range(rois_per_row)]
+            ax_row_1b = [f.add_subplot(gs01[1, x]) for x in range(rois_per_row)]
+            ax_row_2a = [f.add_subplot(gs02[0, x]) for x in range(rois_per_row)]
+            ax_row_2b = [f.add_subplot(gs02[1, x]) for x in range(rois_per_row)]
 
         # draw the main slice for reference
-        roi_xyz = np.nonzero(mask_arr == roi_vals[0])
-        c_x, c_y, c_z = np.median(roi_xyz[0]).astype(int), \
-                        np.median(roi_xyz[1]).astype(int), \
-                        np.median(roi_xyz[2]).astype(int)
+        c_x, c_y, c_z = np.array(mask_arr.shape)//2
+        if n_rois:
+            roi_xyz = np.nonzero(mask_arr == roi_vals[0])
+            c_x, c_y, c_z = np.median(roi_xyz[0]).astype(int), \
+                            np.median(roi_xyz[1]).astype(int), \
+                            np.median(roi_xyz[2]).astype(int)
         roi_slice = mask_arr[c_x, :, :]
         im_slice = base_arr[c_x, :, :]
         ax_glob.imshow(im_slice, cmap='gray')
@@ -389,118 +394,120 @@ class ImageSetAbstract(ABC):
 
 
         # loop over the axes and plot the individual roi regions
-        roi_dx = 0
-        for ax_row_dx, axes_row in zip([0, 2],
-                                       [ax_row_1a, ax_row_2a]):
-            for ax_dx in range(rois_per_row):
-                ax = axes_row[ax_dx]
-                # if its a 3D image try again
-                sag_ax = None
-                if ax_row_dx == 0:
-                    sag_ax = ax_row_1b[ax_dx]
-                if ax_row_dx == 2:
-                    sag_ax = ax_row_2b[ax_dx]
+        if n_rois:
+            roi_dx = 0
+            for ax_row_dx, axes_row in zip([0, 2],
+                                           [ax_row_1a, ax_row_2a]):
+                for ax_dx in range(rois_per_row):
+                    ax = axes_row[ax_dx]
+                    # if its a 3D image try again
+                    sag_ax = None
+                    if ax_row_dx == 0:
+                        sag_ax = ax_row_1b[ax_dx]
+                    if ax_row_dx == 2:
+                        sag_ax = ax_row_2b[ax_dx]
 
-                if (roi_dx < n_rois):
-                    roi_xyz = np.nonzero(mask_arr == roi_vals[roi_dx])
-                    c_x, c_y, c_z = np.median(roi_xyz[0]).astype(int), \
-                                    np.median(roi_xyz[1]).astype(int), \
-                                    np.median(roi_xyz[2]).astype(int)
-                    c_x_min, c_y_min, c_z_min = np.min(roi_xyz[0]).astype(int), \
-                                                np.min(roi_xyz[1]).astype(int), \
-                                                np.min(roi_xyz[2]).astype(int)
-                    c_x_max, c_y_max, c_z_max = np.max(roi_xyz[0]).astype(int), \
-                                                np.max(roi_xyz[1]).astype(int), \
-                                                np.max(roi_xyz[2]).astype(int)
-                    padd_yz = int(np.round(10. / im_spacing[0]))
-                    padd_x = int(np.round(10. / im_spacing[2]))
-                    extent_x_a = c_x_min - padd_x if (c_x_min - padd_x) >= 0 else 0
-                    extent_x_b = c_x_max + padd_x if (c_x_max + padd_x) <= base_arr.shape[0] else base_arr.shape[0]
-                    extent_y_a = c_y_min - padd_yz if (c_y_min - padd_yz) >= 0 else 0
-                    extent_y_b = c_y_max + padd_yz if (c_y_max + padd_yz) <= base_arr.shape[1] else base_arr.shape[1]
-                    extent_z_a = c_z_min - padd_yz if (c_z_min - padd_yz) >= 0 else 0
-                    extent_z_b = c_z_max + padd_yz if (c_z_max + padd_yz) <= base_arr.shape[2] else base_arr.shape[2]
+                    if (roi_dx < n_rois):
+                        roi_xyz = np.nonzero(mask_arr == roi_vals[roi_dx])
+                        c_x, c_y, c_z = np.median(roi_xyz[0]).astype(int), \
+                                        np.median(roi_xyz[1]).astype(int), \
+                                        np.median(roi_xyz[2]).astype(int)
+                        c_x_min, c_y_min, c_z_min = np.min(roi_xyz[0]).astype(int), \
+                                                    np.min(roi_xyz[1]).astype(int), \
+                                                    np.min(roi_xyz[2]).astype(int)
+                        c_x_max, c_y_max, c_z_max = np.max(roi_xyz[0]).astype(int), \
+                                                    np.max(roi_xyz[1]).astype(int), \
+                                                    np.max(roi_xyz[2]).astype(int)
+                        padd_yz = int(np.round(10. / im_spacing[0]))
+                        padd_x = int(np.round(10. / im_spacing[2]))
+                        extent_x_a = c_x_min - padd_x if (c_x_min - padd_x) >= 0 else 0
+                        extent_x_b = c_x_max + padd_x if (c_x_max + padd_x) <= base_arr.shape[0] else base_arr.shape[0]
+                        extent_y_a = c_y_min - padd_yz if (c_y_min - padd_yz) >= 0 else 0
+                        extent_y_b = c_y_max + padd_yz if (c_y_max + padd_yz) <= base_arr.shape[1] else base_arr.shape[1]
+                        extent_z_a = c_z_min - padd_yz if (c_z_min - padd_yz) >= 0 else 0
+                        extent_z_b = c_z_max + padd_yz if (c_z_max + padd_yz) <= base_arr.shape[2] else base_arr.shape[2]
 
-                    zoom_arr = base_arr[c_x, extent_y_a:extent_y_b, extent_z_a:extent_z_b]
-                    zoom_extent = [0, zoom_arr.shape[0] * im_spacing[1],
-                                   0, zoom_arr.shape[1] * im_spacing[0]]
-                    roi_slice = mask_arr[c_x, extent_y_a:extent_y_b, extent_z_a:extent_z_b]
-                    # prepare the overlay data to be used (ROI label, or a parameter map)
-                    overlay_slice, vmin, vmax = None, None, None
-                    if parameter_map is not None:
-                        pmap_arr = sitk.GetArrayFromImage(parameter_map)
-                        overlay_slice = pmap_arr[c_x, extent_y_a:extent_y_b, extent_z_a:extent_z_b]
-                        if parameter_map_name == "height_dist_mm":
-                            vmin = -20.0
-                            vmax =  20.0
-                            olay_cmap = "RdYlGn"
-                        else:
-                            vmin = 0.
-                            vmax = 15.0
-                            olay_cmap = "nipy_spectral"
-                    else:
-                        overlay_slice = roi_slice
-                        vmin = np.min(all_roi_values) - 1
-                        vmax = np.max(all_roi_values) + 1
-                        olay_cmap = "nipy_spectral"
-                    ax.imshow(zoom_arr,
-                              extent=zoom_extent,
-                              cmap='gray')
-                    roi_i = ax.imshow(np.ma.masked_where(roi_slice == 0, overlay_slice),
-                                      extent=zoom_extent,
-                                      cmap=olay_cmap, vmin=vmin, vmax=vmax,
-                                      interpolation='none',
-                                      alpha=0.7)
-                    ax.set_xticks([])
-                    ax.set_xticklabels([])
-                    ax.set_yticks([])
-                    ax.set_yticklabels([])
-                    ax.set_title("%s\n(n=%d)" % (ROI_IDX_LABEL_MAP[roi_vals[roi_dx]], np.count_nonzero(mask_arr == roi_vals[roi_dx])))
-                    if ax_dx == 0:
-                        ax.set_ylabel("axial")
-
-                    if sag_ax is not None:
-                        if (c_x_max - c_x_min) > 1:
-                            zoom_arr = base_arr[extent_x_a:extent_x_b, c_y, extent_z_a:extent_z_b]
-                            zoom_extent = [0, zoom_arr.shape[1] * im_spacing[0],
-                                           0, zoom_arr.shape[0] * im_spacing[2]]
-                            sag_ax.imshow(zoom_arr,
-                                          extent=zoom_extent,
-                                          cmap='gray')
-                            roi_slice = mask_arr[extent_x_a:extent_x_b, c_y, extent_z_a:extent_z_b]
-                            # prepare the overlay data to be used (ROI label, or a parameter map)
-                            overlay_slice = None
-                            if parameter_map is not None:
-                                pmap_arr = sitk.GetArrayFromImage(parameter_map)
-                                overlay_slice = pmap_arr[extent_x_a:extent_x_b, c_y, extent_z_a:extent_z_b]
+                        zoom_arr = base_arr[c_x, extent_y_a:extent_y_b, extent_z_a:extent_z_b]
+                        zoom_extent = [0, zoom_arr.shape[0] * im_spacing[1],
+                                       0, zoom_arr.shape[1] * im_spacing[0]]
+                        roi_slice = mask_arr[c_x, extent_y_a:extent_y_b, extent_z_a:extent_z_b]
+                        # prepare the overlay data to be used (ROI label, or a parameter map)
+                        overlay_slice, vmin, vmax = None, None, None
+                        if parameter_map is not None:
+                            pmap_arr = sitk.GetArrayFromImage(parameter_map)
+                            overlay_slice = pmap_arr[c_x, extent_y_a:extent_y_b, extent_z_a:extent_z_b]
+                            if parameter_map_name == "height_dist_mm":
+                                vmin = -20.0
+                                vmax =  20.0
+                                olay_cmap = "RdYlGn"
                             else:
-                                overlay_slice = roi_slice
-                            sag_ax.imshow(np.ma.masked_where(roi_slice == 0, overlay_slice),
+                                vmin = 0.
+                                vmax = 15.0
+                                olay_cmap = "nipy_spectral"
+                        else:
+                            overlay_slice = roi_slice
+                            vmin = np.min(all_roi_values) - 1
+                            vmax = np.max(all_roi_values) + 1
+                            olay_cmap = "nipy_spectral"
+                        ax.imshow(zoom_arr,
+                                  extent=zoom_extent,
+                                  cmap='gray')
+                        roi_i = ax.imshow(np.ma.masked_where(roi_slice == 0, overlay_slice),
                                           extent=zoom_extent,
                                           cmap=olay_cmap, vmin=vmin, vmax=vmax,
                                           interpolation='none',
                                           alpha=0.7)
-                            if ax_dx == 0:
-                                sag_ax.set_ylabel("sagittal")
+                        ax.set_xticks([])
+                        ax.set_xticklabels([])
+                        ax.set_yticks([])
+                        ax.set_yticklabels([])
+                        ax.set_title("%s\n(n=%d)" % (ROI_IDX_LABEL_MAP[roi_vals[roi_dx]], np.count_nonzero(mask_arr == roi_vals[roi_dx])))
+                        if ax_dx == 0:
+                            ax.set_ylabel("axial")
 
-                            sag_ax.set_xticks([])
-                            sag_ax.set_xticklabels([])
-                            sag_ax.set_yticks([])
-                            sag_ax.set_yticklabels([])
-                        else:
-                            # hide any unused axes
+                        if sag_ax is not None:
+                            if (c_x_max - c_x_min) > 1:
+                                zoom_arr = base_arr[extent_x_a:extent_x_b, c_y, extent_z_a:extent_z_b]
+                                zoom_extent = [0, zoom_arr.shape[1] * im_spacing[0],
+                                               0, zoom_arr.shape[0] * im_spacing[2]]
+                                sag_ax.imshow(zoom_arr,
+                                              extent=zoom_extent,
+                                              cmap='gray')
+                                roi_slice = mask_arr[extent_x_a:extent_x_b, c_y, extent_z_a:extent_z_b]
+                                # prepare the overlay data to be used (ROI label, or a parameter map)
+                                overlay_slice = None
+                                if parameter_map is not None:
+                                    pmap_arr = sitk.GetArrayFromImage(parameter_map)
+                                    overlay_slice = pmap_arr[extent_x_a:extent_x_b, c_y, extent_z_a:extent_z_b]
+                                else:
+                                    overlay_slice = roi_slice
+                                sag_ax.imshow(np.ma.masked_where(roi_slice == 0, overlay_slice),
+                                              extent=zoom_extent,
+                                              cmap=olay_cmap, vmin=vmin, vmax=vmax,
+                                              interpolation='none',
+                                              alpha=0.7)
+                                if ax_dx == 0:
+                                    sag_ax.set_ylabel("sagittal")
+
+                                sag_ax.set_xticks([])
+                                sag_ax.set_xticklabels([])
+                                sag_ax.set_yticks([])
+                                sag_ax.set_yticklabels([])
+                            else:
+                                # hide any unused axes
+                                sag_ax.axis('off')
+
+                        roi_dx = roi_dx + 1
+                    else:
+                        # hide any unused axes
+                        ax.axis('off')
+                        if sag_ax is not None:
                             sag_ax.axis('off')
+            # add colorbar for parameter map
+            if parameter_map is not None:
+                cb = plt.colorbar(mappable=roi_i, ax=ax_row_1b, location='bottom')
+                cb.set_label(parameter_map_name)
 
-                    roi_dx = roi_dx + 1
-                else:
-                    # hide any unused axes
-                    ax.axis('off')
-                    if sag_ax is not None:
-                        sag_ax.axis('off')
-        # add colorbar for parameter map
-        if parameter_map is not None:
-            cb = plt.colorbar(mappable=roi_i, ax=ax_row_1b, location='bottom')
-            cb.set_label(parameter_map_name)
         # draw it on the pdf
         pil_f = mu.mplcanvas_to_pil(f)
         width, height = pil_f.size
@@ -554,6 +561,7 @@ class ImageBasic(object):
     def __init__(self,
                  label, sitk_im,
                  series_instance_UID=None,
+                 series_number=None,
                  bits_allocated=None,
                  bits_stored=None,
                  rescale_slope=None,
@@ -564,6 +572,7 @@ class ImageBasic(object):
         self.label = label
         self.im = sitk_im
         self.series_instance_UID = series_instance_UID
+        self.series_number = series_number
         self.filepath_list = filepath_list
         # image data information
         self.bits_allocated = bits_allocated
@@ -587,6 +596,7 @@ class ImageGeometric(ImageBasic):
     def __init__(self,
                  label, sitk_im,
                  series_instance_UID=None,
+                 series_number=None,
                  bits_allocated=None,
                  bits_stored=None,
                  rescale_slope=None,
@@ -594,7 +604,7 @@ class ImageGeometric(ImageBasic):
                  scale_slope=None,
                  scale_intercept=None,
                  filepath_list=None):
-        super().__init__(label, sitk_im, series_instance_UID,
+        super().__init__(label, sitk_im, series_instance_UID, series_number,
                          bits_allocated, bits_stored,
                          rescale_slope, rescale_intercept, scale_slope, scale_intercept, filepath_list)
         self.roi_mask_image_PD, self.roi_prop_dict_PD = None, None
@@ -690,11 +700,12 @@ class ImageProtonDensity(ImageBasic):
                  label, sitk_im,
                  geometry_sitk_im=None,
                  series_instance_UID=None,
+                 series_number=None,
                  bits_allocated=None,
                  bits_stored=None,
                  rescale_slope=None,
                  rescale_intercept=None):
-        super().__init__(label, sitk_im, series_instance_UID,
+        super().__init__(label, sitk_im, series_instance_UID, series_number,
                          bits_allocated, bits_stored, rescale_slope, rescale_intercept)
         self.geometry_image = geometry_sitk_im
         self.roi_image = None
@@ -709,9 +720,8 @@ class ImageSetT1VIR(ImageSetAbstract):
                  inversion_time_list,
                  repetition_time_list,
                  geometry_image,
-                 series_instance_UIDs=None,
-                 bits_allocated=None,
-                 bits_stored=None,
+                 series_instance_UIDs=None, series_numbers=None,
+                 bits_allocated=None, bits_stored=None,
                  rescale_slope_list=None,
                  rescale_intercept_list=None,
                  scale_slope_list=None,
@@ -725,7 +735,7 @@ class ImageSetT1VIR(ImageSetAbstract):
                          repetition_time_list=repetition_time_list,
                          measurement_variable_units="ms",
                          geometry_image=geometry_image,
-                         series_instance_UIDs=series_instance_UIDs,
+                         series_instance_UIDs=series_instance_UIDs, series_numbers=series_numbers,
                          bits_allocated=bits_allocated, bits_stored=bits_stored,
                          rescale_slope_list=rescale_slope_list, rescale_intercept_list=rescale_intercept_list,
                          scale_slope_list=scale_slope_list, scale_intercept_list=scale_intercept_list,
@@ -786,9 +796,8 @@ class ImageSetT1VFA(ImageSetAbstract):
                  flip_angle_list,
                  repetition_time_list,
                  geometry_image,
-                 series_instance_UIDs=None,
-                 bits_allocated=None,
-                 bits_stored=None,
+                 series_instance_UIDs=None, series_numbers=None,
+                 bits_allocated=None, bits_stored=None,
                  rescale_slope_list=None,
                  rescale_intercept_list=None,
                  scale_slope_list=None,
@@ -802,7 +811,7 @@ class ImageSetT1VFA(ImageSetAbstract):
                          measurement_variable_units="deg.",
                          repetition_time_list=repetition_time_list,
                          geometry_image=geometry_image,
-                         series_instance_UIDs=series_instance_UIDs,
+                         series_instance_UIDs=series_instance_UIDs, series_numbers=series_numbers,
                          bits_allocated=bits_allocated, bits_stored=bits_stored,
                          rescale_slope_list=rescale_slope_list, rescale_intercept_list=rescale_intercept_list,
                          scale_slope_list=scale_slope_list, scale_intercept_list=scale_intercept_list,
@@ -861,9 +870,8 @@ class ImageSetT2MSE(ImageSetAbstract):
                  echo_time_list,
                  repetition_time_list,
                  geometry_image,
-                 series_instance_UIDs=None,
-                 bits_allocated=None,
-                 bits_stored=None,
+                 series_instance_UIDs=None, series_numbers=None,
+                 bits_allocated=None, bits_stored=None,
                  rescale_slope_list=None,
                  rescale_intercept_list=None,
                  scale_slope_list=None,
@@ -877,7 +885,7 @@ class ImageSetT2MSE(ImageSetAbstract):
                          measurement_variable_units="ms",
                          repetition_time_list=repetition_time_list,
                          geometry_image=geometry_image,
-                         series_instance_UIDs=series_instance_UIDs,
+                         series_instance_UIDs=series_instance_UIDs, series_numbers=series_numbers,
                          bits_allocated=bits_allocated, bits_stored=bits_stored,
                          rescale_slope_list=rescale_slope_list, rescale_intercept_list=rescale_intercept_list,
                          scale_slope_list=scale_slope_list, scale_intercept_list=scale_intercept_list,
@@ -936,9 +944,8 @@ class ImageSetDW(ImageSetAbstract):
                  b_value_list,
                  repetition_time_list,
                  geometry_image,
-                 series_instance_UIDs=None,
-                 bits_allocated=None,
-                 bits_stored=None,
+                 series_instance_UIDs=None, series_numbers=None,
+                 bits_allocated=None, bits_stored=None,
                  rescale_slope_list=None,
                  rescale_intercept_list=None,
                  scale_slope_list=None,
@@ -953,7 +960,7 @@ class ImageSetDW(ImageSetAbstract):
                          measurement_variable_units="s/µm²",
                          repetition_time_list=repetition_time_list,
                          geometry_image=geometry_image,
-                         series_instance_UIDs=series_instance_UIDs,
+                         series_instance_UIDs=series_instance_UIDs, series_numbers=series_numbers,
                          bits_allocated=bits_allocated, bits_stored=bits_stored,
                          rescale_slope_list=rescale_slope_list, rescale_intercept_list=rescale_intercept_list,
                          scale_slope_list=scale_slope_list, scale_intercept_list=scale_intercept_list,
@@ -1017,9 +1024,8 @@ class ImageSetT2Star(ImageSetAbstract):
                  echo_time_list,
                  repetition_time_list,
                  geometry_image,
-                 series_instance_UIDs=None,
-                 bits_allocated=None,
-                 bits_stored=None,
+                 series_instance_UIDs=None, series_numbers=None,
+                 bits_allocated=None, bits_stored=None,
                  rescale_slope=None,
                  rescale_intercept=None,
                  scanner_make=None, scanner_model=None, scanner_serial_number=None, scanner_field_strength=None,
@@ -1031,7 +1037,7 @@ class ImageSetT2Star(ImageSetAbstract):
                          measurement_variable_units="ms",
                          repetition_time_list=repetition_time_list,
                          geometry_image=geometry_image,
-                         series_instance_UIDs=series_instance_UIDs,
+                         series_instance_UIDs=series_instance_UIDs, series_numbers=series_numbers,
                          bits_allocated=bits_allocated, bits_stored=bits_stored,
                          rescale_slope=rescale_slope, rescale_intercept=rescale_intercept,
                          scanner_make=scanner_make, scanner_model=scanner_model, scanner_serial_number=scanner_serial_number,

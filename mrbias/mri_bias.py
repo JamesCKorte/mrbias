@@ -29,6 +29,8 @@ import tempfile
 import shutil
 
 from abc import ABC, abstractmethod
+
+import SimpleITK as sitk
 import yaml
 from collections import OrderedDict
 import numbers
@@ -124,23 +126,30 @@ class MRBIAS(object):
         mu.log("MR-BIAS::analyse() : Scan and sort the DICOM directory", LogLevels.LOG_INFO)
         mu.log("-" * 100, LogLevels.LOG_INFO)
         scan_protocol = self.sorting_config.get_scan_protocol_for_sorting()
+        show_unknown_series = self.sorting_config.get_show_unknown_series()
         ss = None
         if scan_protocol == "siemens_skyra_3p0T":
-            ss = scan_session.SystemSessionSiemensSkyra(dicom_directory)
+            ss = scan_session.SystemSessionSiemensSkyra(dicom_directory, show_unknown_series)
         elif scan_protocol == "philips_marlin_1p5T":
-            ss = scan_session.SystemSessionPhilipsMarlin(dicom_directory)
+            ss = scan_session.SystemSessionPhilipsMarlin(dicom_directory, show_unknown_series)
         elif scan_protocol == "auckland_cam_3p0T":
-            ss = scan_session.SystemSessionAucklandCAM(dicom_directory)
+            ss = scan_session.SystemSessionAucklandCAM(dicom_directory, show_unknown_series)
         elif scan_protocol == "siemens_skyra_erin_3p0T":
-            ss = scan_session.SystemSessionSiemensSkyraErin(dicom_directory)
+            ss = scan_session.SystemSessionSiemensSkyraErin(dicom_directory, show_unknown_series)
         elif scan_protocol == "philips_ingenia_ambitionX":
-            ss = scan_session.SystemSessionPhilipsIngeniaAmbitionX(dicom_directory)
+            ss = scan_session.SystemSessionPhilipsIngeniaAmbitionX(dicom_directory, show_unknown_series)
         elif scan_protocol == "philips_marlin_1p5T_avl":
-            ss = scan_session.SystemSessionAVLPhilipsMarlinNoGeo(dicom_directory)
+            ss = scan_session.SystemSessionAVLPhilipsMarlinNoGeo(dicom_directory, show_unknown_series)
         elif scan_protocol == "diff_philips_ingenia_ambitionX":
-            ss = scan_session.DiffusionSessionPhilipsIngeniaAmbitionX(dicom_directory)
+            ss = scan_session.DiffusionSessionPhilipsIngeniaAmbitionX(dicom_directory, show_unknown_series)
         elif scan_protocol == "diff_siemens_skyra":
-            ss = scan_session.DiffusionSessionSiemensSkyra(dicom_directory)
+            ss = scan_session.DiffusionSessionSiemensSkyra(dicom_directory, show_unknown_series)
+        elif scan_protocol == "diff_philips_ingenia":
+            ss = scan_session.DiffusionSessionPhilipsIngenia(dicom_directory, show_unknown_series)
+        elif scan_protocol == "diff_ge_optima":
+            ss = scan_session.DiffusionSessionGEOptima(dicom_directory, show_unknown_series)
+        elif scan_protocol == "diff_ge_discovery":
+            ss = scan_session.DiffusionSessionGEDiscovery(dicom_directory, show_unknown_series)
         else:
             mu.log("MR-BIAS::analyse(): skipping analysis as unknown 'scan_protocol' defined for DICOM sorting",
                    LogLevels.LOG_WARNING)
@@ -190,7 +199,6 @@ class MRBIAS(object):
                                    (repr(geometric_image), repr(imageset.get_geometry_image())),
                                    LogLevels.LOG_INFO)
 
-
         # ===================================================================================================
         # Dectect the ROIs on each geometry image (only ones used in a fit)
         # ===================================================================================================
@@ -198,14 +206,15 @@ class MRBIAS(object):
         mu.log("MR-BIAS::analyse() : Detect the ROIs on each geometry image ...", LogLevels.LOG_INFO)
         mu.log("-" * 100, LogLevels.LOG_INFO)
         roi_template = self.detect_config.get_template()
-        roi_reg_method = self.detect_config.get_registration_method()
+        roi_detect_method = self.detect_config.get_detection_method()
+        roi_flip_cap_series_numbers = self.detect_config.get_flip_cap_series_numbers()
         roi_is_partial_fov = self.detect_config.get_registration_partial_fov()
         roi_use_first_detection_for_all = self.detect_config.get_use_first_detection_only()
         roi_use_manual_roi = self.detect_config.get_use_manual_roi()
         roi_T1_manual_filepath = self.detect_config.get_manual_T1_roi_filepath()
         roi_T2_manual_filepath = self.detect_config.get_manual_T2_roi_filepath()
         roi_DW_manual_filepath = self.detect_config.get_manual_DW_roi_filepath()
-        roi_template_dir, reg_method = None, None
+        roi_template_dir, detect_method = None, None
         temporary_dir, roi_template_dicom_dir = None, None
         if roi_use_manual_roi:
             # make a temporary template directory
@@ -215,7 +224,7 @@ class MRBIAS(object):
                 os.mkdir(temporary_dir)
             roi_template_dir = temporary_dir
             # no registration required just place the ROI on the image
-            reg_method = roi_detect.RegistrationOptions.NONE
+            detect_method = roi_detect.DetectionOptions.NONE
         else:
             if roi_template == "siemens_skyra_3p0T":
                 roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_skyra_3p0T")
@@ -229,17 +238,24 @@ class MRBIAS(object):
                 roi_template_dir = os.path.join(mu.reference_template_directory(), "eurospin_philips_1p5T_allvials")
             elif roi_template == "siemens_diffusion":
                 roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_diffusion")
+            elif roi_template == "siemens_diffusion_no_ice":
+                roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_diffusion_no_ice")
             # ... add others
 
             # determine which detection method
-            if roi_reg_method == "none":
-                reg_method = roi_detect.RegistrationOptions.NONE
-            elif roi_reg_method == "two_stage_msme-GS_correl-GD":
-                reg_method = roi_detect.RegistrationOptions.TWOSTAGE_MSMEGS_CORELGD
-            elif roi_reg_method == "mattesMI-GD":
-                reg_method = roi_detect.RegistrationOptions.MMI_GRADIENTDESCENT
-            elif roi_reg_method == "correl-GD":
-                reg_method = roi_detect.RegistrationOptions.COREL_GRADIENTDESCENT
+            if roi_detect_method == "none":
+                detect_method = roi_detect.DetectionOptions.NONE
+            elif roi_detect_method == "two_stage_msme-GS_correl-GD":
+                detect_method = roi_detect.DetectionOptions.TWOSTAGE_MSEGS_CORELGD
+            elif roi_detect_method == "mattesMI-GD":
+                detect_method = roi_detect.DetectionOptions.MMI_GRADIENTDESCENT
+            elif roi_detect_method == "correl-GD":
+                detect_method = roi_detect.DetectionOptions.COREL_GRADIENTDESCENT
+            elif roi_detect_method == "correl-axigrid_nbest-GD":
+                detect_method = roi_detect.DetectionOptions.COREL_AXIGRID_NBEST_GRADIENTDESCENT
+            elif roi_detect_method == "shape_diffusion_nist":
+                detect_method = roi_detect.DetectionOptions.SHAPE_DIFFUSION_NIST
+
 
         # create the detector if appropriate information available
         if roi_template is None:
@@ -251,7 +267,7 @@ class MRBIAS(object):
                    LogLevels.LOG_ERROR)
             return None
         else:
-            assert reg_method is not None, "MR-BIAS::analyse(): invalid ROI registration method selected - please check your configuration file"
+            assert detect_method is not None, "MR-BIAS::analyse(): invalid ROI registration method selected - please check your configuration file"
             roi_detectors = OrderedDict()
             first_geo_im, first_detector  = None, None
             for g_dx, geom_image in enumerate(geometric_images_linked.keys()):
@@ -293,9 +309,14 @@ class MRBIAS(object):
                             shutil.copy(os.path.abspath(f), os.path.join(roi_template_dicom_dir, os.path.basename(f)))
 
                 # create a roi detector
+                detect_kwargs = {'flip_cap_dir': False,
+                                 'debug_vis': False}
+                if geom_image.series_number in roi_flip_cap_series_numbers:
+                    detect_kwargs['flip_cap_dir'] = True
                 roi_detector = roi_detect.ROIDetector(geom_image, roi_template_dir,
-                                                      registration_method=reg_method,
-                                                      partial_fov=roi_is_partial_fov)
+                                                      detection_method=detect_method,
+                                                      partial_fov=roi_is_partial_fov,
+                                                      kwargs=detect_kwargs)
                 if g_dx == 0:
                     first_geo_im = geom_image
                     first_detector = roi_detector
@@ -392,7 +413,6 @@ class MRBIAS(object):
                 ref_phan = phantom.ReferencePhantomEurospinRelaxometry1(field_strength=field_strength,  # Tesla
                                                                         temperature=temperature_celsius,
                                                                         serial_number=phantom_sn)  # Celsius
-                
 
         # --------------------------------------------------------------------
         # get curve fitting details from the configuration file
@@ -412,6 +432,20 @@ class MRBIAS(object):
             preproc_dict['exclude'] = curve_fit.EXCL_SETTING_STR_ENUM_MAP[cf_exclude]
         assert isinstance(cf_percent_clipped_threshold, numbers.Number), "Please check config file 'percent_clipped_threshold' needs to be a number (detected type:%s)" % type(cf_percent_clipped_threshold)
         preproc_dict['percent_clipped_threshold'] = cf_percent_clipped_threshold
+        # prepare a vector to make a mapping between the image data and the analysis folders
+        data_map_num = 0
+        data_map_filename = os.path.join(out_dir, "data_map_%03d.csv" % data_map_num)
+        while(os.path.isfile(data_map_filename)):
+            data_map_num += 1
+            data_map_filename = os.path.join(out_dir, "data_map_%03d.csv" % data_map_num)
+        t1vir_map_df = None
+        t1vfa_map_df = None
+        t2mse_map_df = None
+        dw_map_df = None
+        t1vir_map_d_arr = []
+        t1vfa_map_d_arr = []
+        t2mse_map_d_arr = []
+        dw_map_d_arr = []
         # ----------------------------------------------------
         # T1 Variable Inversion Recovery
         for t1_vir_imageset in t1_vir_imagesets:
@@ -453,6 +487,24 @@ class MRBIAS(object):
                         os.mkdir(d_dir)
                     mdl.write_data(data_dir=d_dir,
                                    write_voxel_data=cf_write_vox_data)
+                    # add data to the map to link dicom images to analysis folders
+                    for series_uid, series_num, TI, TR in zip(t1_vir_imageset.series_instance_UIDs,
+                                                              t1_vir_imageset.series_numbers,
+                                                              t1_vir_imageset.meas_var_list,
+                                                              t1_vir_imageset.repetition_time_list):
+                        exclude_TI = TI in inversion_exclusion_list
+                        t1vir_map_d_arr.append([t1_vir_imageset.label, t1_vir_model_str, series_num, TI, TR,
+                                                cf_normal, cf_averaging, cf_exclude, cf_percent_clipped_threshold,
+                                                exclude_TI, exclusion_label,
+                                                series_uid, d_dir])
+        if len(t1vir_map_d_arr):
+            t1vir_map_col_names = ["Label", "Model", "SeriesNumber",
+                                   "%s (%s)" % (t1_vir_imagesets[0].meas_var_name, t1_vir_imagesets[0].meas_var_units),
+                                   "RepetitionTime",
+                                   "Normalise", "Average", "ExcludeClipped", "ClipPcntThreshold",
+                                   "Excluded", "ExclusionLabel",
+                                   "SeriesInstanceUID", "AnalysisDir"]
+            t1vir_map_df = pd.DataFrame(t1vir_map_d_arr, columns=t1vir_map_col_names)
         # ----------------------------------------------------
         # T1 Variable Flip Angle Recovery
         for t1_vfa_imageset in t1_vfa_imagesets:
@@ -486,6 +538,24 @@ class MRBIAS(object):
                         os.mkdir(d_dir)
                     mdl.write_data(data_dir=d_dir,
                                    write_voxel_data=cf_write_vox_data)
+                    # add data to the map to link dicom images to analysis folders
+                    for series_uid, series_num, FA, TR in zip(t1_vfa_imageset.series_instance_UIDs,
+                                                              t1_vfa_imageset.series_numbers,
+                                                              t1_vfa_imageset.meas_var_list,
+                                                              t1_vfa_imageset.repetition_time_list):
+                        exclude_FA = FA in angle_exclusion_list
+                        t1vfa_map_d_arr.append([t1_vfa_imageset.label, t1_vfa_model_str, series_num, FA, TR,
+                                                cf_normal, cf_averaging, cf_exclude, cf_percent_clipped_threshold,
+                                                exclude_FA, exclusion_label, use_2D_roi, centre_offset_2D_list,
+                                                series_uid, d_dir])
+        if len(t1vfa_map_d_arr):
+            t1vfa_map_col_names = ["Label", "Model", "SeriesNumber",
+                                   "%s (%s)" % (t1_vfa_imagesets[0].meas_var_name, t1_vfa_imagesets[0].meas_var_units),
+                                   "RepetitionTime",
+                                   "Normalise", "Average", "ExcludeClipped", "ClipPcntThreshold",
+                                   "Excluded", "ExclusionLabel", "Use2DROI", "2DSliceOffsets",
+                                   "SeriesInstanceUID", "AnalysisDir"]
+            t1vfa_map_df = pd.DataFrame(t1vfa_map_d_arr, columns=t1vfa_map_col_names)
         # ----------------------------------------------------
         # T2 Multiple Spin-echo
         for t2_mse_imageset in t2_mse_imagesets:
@@ -513,16 +583,34 @@ class MRBIAS(object):
                         os.mkdir(d_dir)
                     mdl.write_data(data_dir=d_dir,
                                    write_voxel_data=cf_write_vox_data)
+                    # add data to the map to link dicom images to analysis folders
+                    for series_uid, series_num, TE, TR in zip(t2_mse_imageset.series_instance_UIDs,
+                                                              t2_mse_imageset.series_numbers,
+                                                              t2_mse_imageset.meas_var_list,
+                                                              t2_mse_imageset.repetition_time_list):
+                        exclude_TE = TE in echo_exclusion_list
+                        t2mse_map_d_arr.append([t2_mse_imageset.label, t2_mse_model_str, series_num, TE, TR,
+                                                cf_normal, cf_averaging, cf_exclude, cf_percent_clipped_threshold,
+                                                exclude_TE, exclusion_label,
+                                                series_uid, d_dir])
+
+        if len(t2mse_map_d_arr):
+            t2mse_map_col_names = ["Label", "Model", "SeriesNumber",
+                                   "%s (%s)" % (t2_mse_imagesets[0].meas_var_name, t2_mse_imagesets[0].meas_var_units),
+                                   "RepetitionTime",
+                                   "Normalise", "Average", "ExcludeClipped", "ClipPcntThreshold",
+                                   "Excluded", "ExclusionLabel",
+                                   "SeriesInstanceUID", "AnalysisDir"]
+            t2mse_map_df = pd.DataFrame(t2mse_map_d_arr, columns=t2mse_map_col_names)
         # ----------------------------------------------------
         # DWI
-
         dw_2param_mdl_list = []
-        dw_3param_mdl_list = [] #for as many signal models as required
-
         for dw_imageset in dw_imagesets:
             dw_imageset.update_ROI_mask()  # trigger a mask update
             # get model options from configuration file
             dw_model_list = self.cf_config.get_dw_models()
+            bval_exclusion_list = self.cf_config.get_dw_exclusion_list()
+            exclusion_label = self.cf_config.get_dw_exclusion_label()
             use_2D_roi = self.cf_config.get_dw_2D_roi_setting()
             if use_2D_roi:
                 mu.log("MR-BIAS::analyse() : \tDW use a 2D ROI ...", LogLevels.LOG_INFO)
@@ -536,6 +624,8 @@ class MRBIAS(object):
                                                              reference_phantom=ref_phan,
                                                              initialisation_phantom=init_phan,
                                                              preprocessing_options=preproc_dict,
+                                                             bval_exclusion_list=bval_exclusion_list,
+                                                             exclusion_label=exclusion_label,
                                                              use_2D_roi=use_2D_roi,
                                                              centre_offset_2D_list=centre_offset_2D_list)
                     dw_2param_mdl_list.append(mdl)
@@ -550,6 +640,34 @@ class MRBIAS(object):
                         os.mkdir(d_dir)
                     mdl.write_data(data_dir=d_dir,
                                    write_voxel_data=cf_write_vox_data)
+                    # add data to the map to link dicom images to analysis folders
+                    for series_uid, series_num, bval, TR in zip(dw_imageset.series_instance_UIDs,
+                                                                dw_imageset.series_numbers,
+                                                                dw_imageset.meas_var_list,
+                                                                dw_imageset.repetition_time_list):
+                        exclude_b = (bval_exclusion_list is not None) and (bval in bval_exclusion_list)
+                        dw_map_d_arr.append([dw_imageset.label, dw_model_str, series_num, bval, TR,
+                                             cf_normal, cf_averaging, cf_exclude, cf_percent_clipped_threshold,
+                                             exclude_b, exclusion_label, use_2D_roi, centre_offset_2D_list,
+                                             series_uid, d_dir])
+        if len(dw_map_d_arr):
+            dw_map_col_names = ["Label", "Model", "SeriesNumber",
+                                "%s (%s)" % (dw_imagesets[0].meas_var_name, dw_imagesets[0].meas_var_units),
+                                "RepetitionTime",
+                                "Normalise", "Average", "ExcludeClipped", "ClipPcntThreshold",
+                                "Excluded", "ExclusionLabel", "Use2DROI", "2DSliceOffsets",
+                                "SeriesInstanceUID", "AnalysisDir"]
+            dw_map_df = pd.DataFrame(dw_map_d_arr, columns=dw_map_col_names)
+
+        # join the data mapping frames and save to disk
+        map_vec = []
+        for m in [t1vir_map_df, t1vfa_map_df, t2mse_map_df, dw_map_df]:
+            if m is not None:
+                map_vec.append(m)
+        if len(map_vec):
+            df_data_analysis_map = pd.concat([t1vir_map_df, t1vfa_map_df, t2mse_map_df, dw_map_df],
+                                             axis=0, join='outer')
+            df_data_analysis_map.to_csv(data_map_filename)
 
         if len(dw_2param_mdl_list):
             #summary page in the pdf per model
@@ -837,6 +955,8 @@ class MRIBiasDICOMSortConfig(MRIBIASConfiguration):
 
     def get_scan_protocol_for_sorting(self):
         return self.get("scan_protocol", None)
+    def get_show_unknown_series(self):
+        return self.get("show_unknown_series", True)
 
 
 class MRIBiasROIDetectConfig(MRIBIASConfiguration):
@@ -848,8 +968,10 @@ class MRIBiasROIDetectConfig(MRIBIASConfiguration):
 
     def get_template(self):
         return self.get("template_name", None)
-    def get_registration_method(self):
+    def get_detection_method(self):
         return self.get("registration_method", "two_stage_msme-GS_correl-GD")
+    def get_flip_cap_series_numbers(self):
+        return self.get("flip_cap_series_numbers", [])
     def get_registration_partial_fov(self):
         return self.get("partial_fov", False)
     def get_use_first_detection_only(self):
@@ -947,6 +1069,10 @@ class MRIBiasCurveFitConfig(MRIBIASConfiguration):
         return self.__get_nestled("dw_options", param_name, default_value)
     def get_dw_models(self):
         return self.__get_dw("fitting_models", ["2_param"])
+    def get_dw_exclusion_list(self):
+        return self.__get_dw("bval_exclusion_list", None)
+    def get_dw_exclusion_label(self):
+        return self.__get_dw("bval_exclusion_label", "user_bval_excld")
     def get_dw_2D_roi_setting(self):
         return self.__get_dw("use_2D_roi", False)
         cf_config = super().get_curve_fitting_config()

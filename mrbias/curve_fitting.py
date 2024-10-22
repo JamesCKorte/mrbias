@@ -222,9 +222,9 @@ def main():
             dw_imageset = dw_imagesets[0]
             dw_imageset.update_ROI_mask() # trigger a mask update
             test_dw_curvefit2p = DWCurveFitAbstract2Param(imageset=dw_imageset,
-                                                            reference_phantom=ref_phan,
-                                                            initialisation_phantom=init_phan,
-                                                            preprocessing_options=preproc_dict)
+                                                          reference_phantom=ref_phan,
+                                                          initialisation_phantom=init_phan,
+                                                          preprocessing_options=preproc_dict)
 
         # add summary pages to PDF
         if len(t1_vfa_imagesets):
@@ -848,13 +848,14 @@ class CurveFitAbstract(ABC):
                     voxel_pmap_dict[pmap_name] = np.array(pmap_2D_arr)
                 # handle 2D for derived maps (i.e. ADC maps)
                 derived_map_dict = OrderedDict()
-                for pmap_label, (pmap_arr, pmap_name, pmap_units) in im_roi.derived_map_dict.items():
-                    dmap_2D_arr = []
-                    for dmap_data, x in zip(pmap_arr,
-                                            im_roi.voxel_data_xyz[0]):
-                        if x in centre_dx_list:
-                            dmap_2D_arr.append(dmap_data)
-                    derived_map_dict[pmap_label] = (np.array(dmap_2D_arr), pmap_name, pmap_units)
+                if im_roi.derived_map_dict is not None:
+                    for pmap_label, (pmap_arr, pmap_name, pmap_units) in im_roi.derived_map_dict.items():
+                        dmap_2D_arr = []
+                        for dmap_data, x in zip(pmap_arr,
+                                                im_roi.voxel_data_xyz[0]):
+                            if x in centre_dx_list:
+                                dmap_2D_arr.append(dmap_data)
+                        derived_map_dict[pmap_label] = (np.array(dmap_2D_arr), pmap_name, pmap_units)
             # - link it with a reference and initialisation value
             cf_roi = CurveFitROI(label=im_roi.label,
                                  voxel_data_array=voxel_data_arr,
@@ -1904,13 +1905,15 @@ class T2SECurveFitAbstract3Param(CurveFitAbstract):
 
 class DWCurveFitAbstract2Param(CurveFitAbstract):
     def __init__(self, imageset, reference_phantom, initialisation_phantom, preprocessing_options,
-                 use_2D_roi=False, centre_offset_2D_list=[0]):
+                 use_2D_roi=False, centre_offset_2D_list=[0],
+                 bval_exclusion_list=None, exclusion_label=None):
         self.eqn_param_map = OrderedDict()
         #self.eqn_param_map["Sb_0"] = ("Signal at b_0", "max(Sb_x)", "0.0", "inf")
         self.eqn_param_map["D"] = ("D", "D", "0.0", "inf")
         self.eqn_param_map["Bx"] = ("b value", "as measured", "-", "-")
         super().__init__(imageset, reference_phantom, initialisation_phantom, preprocessing_options,
                          use_2D_roi=use_2D_roi, centre_offset_2D_list=centre_offset_2D_list,
+                         exclusion_list=bval_exclusion_list, exclusion_label=exclusion_label,
                          optimisation_lib=OptiOptions.LINREG)
 
     def get_model_name(self):

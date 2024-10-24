@@ -67,7 +67,8 @@ from mrbias.roi_detection_methods.roi_template import ROIImage, ROICylinder, ROI
 class ShapeDiffusionNIST(ShapeDetectionMethodAbstract):
     def __init__(self, target_geo_im, fixed_im, roi_template,
                  flip_cap_dir=False,
-                 debug_vis=False):
+                 debug_vis=False,
+                 fine_tune_rois=False):
         super().__init__(target_geo_im, fixed_im, roi_template)
         self.moving_roi_image = None
         # image transforms
@@ -87,6 +88,7 @@ class ShapeDiffusionNIST(ShapeDetectionMethodAbstract):
         self.peak_detect_mod = 0.4
         self.inner_ring_only = True
         self.flip_cap_dir = flip_cap_dir
+        self.fine_tune_rois = fine_tune_rois
         # expected bottle size parameters
         self.bottle_height_mm = 50.0
         self.bottlecap_height_mm = 16.0
@@ -1208,7 +1210,10 @@ class ShapeDiffusionNIST(ShapeDetectionMethodAbstract):
         moving_roi_dict = OrderedDict()
         # get transform for between fixed to moving rotations only
         tx_rot_matrix = mu.get_homog_matrix_from_transform(self.tx1_mov)
-        for roi_label, fixed_roi in fixed_roi_dict.items():
+        if self.fine_tune_rois:
+            ft_f, ft_axes = plt.subplots(3, 13)
+            ft_f.set_tight_layout(True)
+        for r_dx, (roi_label, fixed_roi) in enumerate(fixed_roi_dict.items()):
             for cx, cy, cz, label in moving_coords_and_label_list:
                 mov_label = DW_ROI_LABEL_IDX_MAP[label]
                 if roi_label == mov_label:
@@ -1223,21 +1228,74 @@ class ShapeDiffusionNIST(ShapeDetectionMethodAbstract):
                     dz = int(np.round(dz_mov_mm/thru_plane_spacing_mov_mm))
                     # create the new ROI as detected on the moving image with an approriate offset
                     moving_roi = None
-                    if isinstance(fixed_roi, ROICylinder):
-                        # label, roi_index, ctr_vox_coords, radius_mm, height_mm
-                        moving_roi = ROICylinder(fixed_roi.label, fixed_roi.roi_index,
-                                                 [cx+dx, cy+dy, cz+dz],
-                                                 fixed_roi.radius_mm,
-                                                 fixed_roi.height_mm)
-                    elif isinstance(fixed_roi, ROISphere):
-                        # label, roi_index, ctr_vox_coords, radius_mm
-                        moving_roi = ROISphere(fixed_roi.label, fixed_roi.roi_index,
-                                               [cx+dx, cy+dy, cz+dz],
-                                               fixed_roi.radius_mm)
+                    assert isinstance(fixed_roi, ROICylinder), "ShapeDiffusionNIST::__construct_moving_roi_image(): only supports templates with ROICylinder objects (not %s)" \
+                                                               "please check your template selection or use another ROI detection method." % type(fixed_roi)
+                    if self.fine_tune_rois:
+                        # perform another local ellipse detection to correct for spatial distortion
+                        moving_roi = self.__fine_tune_roi_on_moving_image(cx, cy, cz,
+                                                                          dx, dy, dz, fixed_roi,
+                                                                          ax_axi=ft_axes[0][r_dx],
+                                                                          ax_cor=ft_axes[1][r_dx],
+                                                                          ax_sag=ft_axes[2][r_dx])
+                    else:
+                        if isinstance(fixed_roi, ROICylinder):
+                            # label, roi_index, ctr_vox_coords, radius_mm, height_mm
+                            moving_roi = ROICylinder(fixed_roi.label, fixed_roi.roi_index,
+                                                     [cx+dx, cy+dy, cz+dz],
+                                                     fixed_roi.radius_mm,
+                                                     fixed_roi.height_mm)
                     # add it to a dictionary
                     moving_roi_dict[roi_label] = moving_roi
+        if self.fine_tune_rois: # DEBUG
+            plt.show()  # DEBUG
+            assert False # DEBUG
         # make the ROIImage to return
         return ROIImage(self.moving_im, moving_roi_dict)
+
+    def __fine_tune_roi_on_moving_image(self,
+                                        cx, cy, cz,
+                                        dx, dy, dz, fixed_roi,
+                                        padd_inplane_mm=10.0,
+                                        ax_axi=None, ax_cor=None, ax_sag=None):
+        # get spacing & assume spacing is isotropic in 2D plane
+        spc_arr = np.array(self.moving_im.GetSpacing())
+        in_plane_spacing_mm = (spc_arr[0] + spc_arr[1]) / 2.
+        thru_plane_spacing_mm = spc_arr[2]
+        # crop the image to the bottle based on the ROI centroid
+        bot_half_height_vox = int(np.round(self.bottle_height_mm/thru_plane_spacing_mm/2.0))
+        bot_radius_vox = int(np.round((self.bottle_radius_mm+padd_inplane_mm)/in_plane_spacing_mm))
+        bottle_arr = sitk.GetArrayFromImage(self.moving_im)
+        print("Bottle array:", bottle_arr.shape)
+        bottle_crop_arr = bottle_arr[
+                          cz-bot_half_height_vox:cz+bot_half_height_vox,
+                          cy-bot_radius_vox:     cy+bot_radius_vox,
+                          cx-bot_radius_vox:     cx+bot_radius_vox]
+        print("Bottle crop array:", bottle_crop_arr.shape)
+        bottle_crop_im = sitk.GetImageFromArray(bottle_crop_arr)
+        bottle_crop_im.SetSpacing(spc_arr)
+        if ax_axi is not None:
+            im_slc, extent = mu.get_slice_and_extent(bottle_crop_im, OrientationOptions.AXI)
+            ax_axi.imshow(im_slc, extent=extent, cmap="gray", origin='lower')
+            ax_axi.axhline(bot_radius_vox*in_plane_spacing_mm, color='r')
+            ax_axi.axvline(bot_radius_vox*in_plane_spacing_mm, color='b')
+            ax_axi.set_xticks([])
+            ax_axi.set_yticks([])
+        if ax_cor is not None:
+            im_slc, extent = mu.get_slice_and_extent(bottle_crop_im, OrientationOptions.COR)
+            ax_cor.imshow(im_slc, extent=extent, cmap="gray", origin='lower')
+            ax_cor.axvline(bot_radius_vox*in_plane_spacing_mm, color='b')
+            ax_cor.set_xticks([])
+            ax_cor.set_yticks([])
+        if ax_sag is not None:
+            im_slc, extent = mu.get_slice_and_extent(bottle_crop_im, OrientationOptions.SAG)
+            ax_sag.imshow(im_slc, extent=extent, cmap="gray", origin='lower')
+            ax_sag.axvline(bot_radius_vox*in_plane_spacing_mm, color='r')
+            ax_sag.set_xticks([])
+            ax_sag.set_yticks([])
+        return None
+
+
+
     # FUNCTIONS FOR ROI LABEL MAPPING: END
 
 # tophat  from https://stackoverflow.com/questions/49878701/scipy-curve-fit-cannot-fit-a-tophat-function

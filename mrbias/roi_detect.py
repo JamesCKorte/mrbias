@@ -214,13 +214,17 @@ class ROIDetector(object):
         elif reg_method == DetectionOptions.SHAPE_DIFFUSION_NIST:
             flip_cap_dir = False
             debug_vis = False
+            fine_tune_rois = False
             if kwargs is not None:
                 if 'flip_cap_dir' in kwargs.keys():
                     flip_cap_dir = kwargs['flip_cap_dir']
                 if 'debug_vis' in kwargs.keys():
                     debug_vis = kwargs['debug_vis']
+                if 'fine_tune_rois' in kwargs.keys():
+                    fine_tune_rois = kwargs['fine_tune_rois']
             rego = ShapeDiffusionNIST(target_geo_im, fixed_geom_im, roi_template,
                                       flip_cap_dir=flip_cap_dir,
+                                      fine_tune_rois=fine_tune_rois,
                                       debug_vis=debug_vis)
         assert rego is not None, "ROIDetector::generate_detection_instance(): " \
                                  "invalid detection method, %s" % str(reg_method)

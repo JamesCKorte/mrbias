@@ -92,7 +92,23 @@ DATA_CONFIG_DICT = {"InstituteA": (os.path.join(DATA_BASE_DIR, "InstA_phantomQA"
 #                                    None,
 #                                    3.0)}
 
+# DATA_CONFIG_DICT = {"InstituteA": (os.path.join(DATA_BASE_DIR, "InstA_phantomQA"), # Philips 1.5T Ingenia
+#                                    ("config/embrace/diffusion_philips_config.yaml", None),
+#                                    None,
+#                                    1.5)}
 
+# DATA_CONFIG_DICT = {"InstituteB": (os.path.join(DATA_BASE_DIR, "InstB_phantomQA"), # Philips 1.5T Ingenia
+#                                    ("config/embrace/diffusion_philips_config.yaml", None),
+#                                    None,
+#                                    1.5)}
+#
+# # D has ADC maps associated (for checking derived maps settings)
+# DATA_CONFIG_DICT = {"InstituteD": (os.path.join(DATA_BASE_DIR, "InstD_phantomQA"), # Siemens 1.5T Aera
+#                                    ("config/embrace/diffusion_siemens_config.yaml", None),
+#                                    None,
+#                                    1.5)}
+
+TURN_ON_SLICE_AVERAGING = True
 
 tmp_filename = 'temp.yaml'
 
@@ -101,7 +117,13 @@ for inst_label, (data_dir, dw_config, estar_config, field_str) in DATA_CONFIG_DI
     # load up the base config, modify the output directory
     dw_config_file, dw_cap_dir_series_numbers = dw_config
     conf = yaml.full_load(open(dw_config_file))
-    base_out_dir = conf['global']['output_directory'] + "_II"
+    base_out_dir = conf['global']['output_directory'] + "_II_r8"
+    if TURN_ON_SLICE_AVERAGING:
+        base_out_dir = conf['global']['output_directory'] + "_II_r8_sliceAv"
+        conf["curve_fitting"]['dw_options']['use_2D_roi'] = False
+        conf["curve_fitting"]['averaging'] = "voxels_in_slice"
+
+
     inst_path = base_out_dir + '/' + inst_label
     if not os.path.isdir(inst_path):
         os.mkdir(inst_path)
@@ -113,13 +135,33 @@ for inst_label, (data_dir, dw_config, estar_config, field_str) in DATA_CONFIG_DI
     # analyse DW data
     mrb = MRBIAS(tmp_filename, write_to_screen=True)
     mrb.analyse(data_dir)
-    # analyse again, but exclude the b=0 value
-    conf['global']['output_directory'] = base_out_dir + '/' + inst_label + "/noBval0"
-    conf["curve_fitting"]['dw_options']['bval_exclusion_list'] = [0]
-    conf["curve_fitting"]['dw_options']['bval_exclusion_label'] = "excludeBval0"
+
+    # analyse again, but exclude b-values to match EMBRACE analysis for the institutional protocols
+    if inst_label == "InstituteA":
+        # exclude specfic b-values to use only [200, 1000]
+        conf['global']['output_directory'] = base_out_dir + '/' + inst_label + "/specBVals"
+        conf["curve_fitting"]['dw_options']['bval_exclusion_list'] = [0.0, 600.0e-6] # bvals are 0,200, 600, 1000
+        conf["curve_fitting"]['dw_options']['bval_exclusion_label'] = "specBVals"
+    elif inst_label == "InstituteC":
+        # exclude specfic b-values to use only [200, 1000]
+        conf['global']['output_directory'] = base_out_dir + '/' + inst_label + "/specBVals"
+        conf["curve_fitting"]['dw_options']['bval_exclusion_list'] = [0.0, 50.0e-6, 700.0e-6] # bvals are 0, 50, 200, 700, 1000
+        conf["curve_fitting"]['dw_options']['bval_exclusion_label'] = "specBVals"
+    elif inst_label == "InstituteL":
+        # exclude specfic b-values to use only [200, 1000]
+        conf['global']['output_directory'] = base_out_dir + '/' + inst_label + "/specBVals"
+        conf["curve_fitting"]['dw_options']['bval_exclusion_list'] = [0.0, 800.0e-6] # bvals are 0, 200, 800, 1000
+        conf["curve_fitting"]['dw_options']['bval_exclusion_label'] = "specBVals"
+    else:
+        # exclude the b=0 value
+        conf['global']['output_directory'] = base_out_dir + '/' + inst_label + "/noBval0"
+        conf["curve_fitting"]['dw_options']['bval_exclusion_list'] = [0.0]
+        conf["curve_fitting"]['dw_options']['bval_exclusion_label'] = "excludeBval0"
     yaml.dump(conf, open(tmp_filename, mode="w+"))
     mrb = MRBIAS(tmp_filename, write_to_screen=True)
     mrb.analyse(data_dir)
+
+
     # clear the temporary configuration file
     os.remove(tmp_filename)
     # free memory just in case

@@ -26,6 +26,7 @@ Change Log:
 """
 
 import os
+import copy
 from enum import IntEnum
 from abc import ABC, abstractmethod
 from collections import OrderedDict
@@ -70,8 +71,11 @@ NORM_SETTING_STR_ENUM_MAP = {"voxel_max": NormalisationOptions.VOXEL_MAX,
 
 class AveragingOptions(IntEnum):
     AVERAGE_ROI = 1
-AV_OPT_STR_MAP = {AveragingOptions.AVERAGE_ROI: "AvROI"}
-AV_SETTING_STR_ENUM_MAP = {"voxels_in_ROI": AveragingOptions.AVERAGE_ROI}
+    AVERAGE_PER_SLICE = 2
+AV_OPT_STR_MAP = {AveragingOptions.AVERAGE_ROI: "AvROI",
+                  AveragingOptions.AVERAGE_PER_SLICE: "AvSlice"}
+AV_SETTING_STR_ENUM_MAP = {"voxels_in_ROI": AveragingOptions.AVERAGE_ROI,
+                           "voxels_in_slice": AveragingOptions.AVERAGE_PER_SLICE}
 
 class ExclusionOptions(IntEnum):
     CLIPPED_VALUES = 1
@@ -300,17 +304,19 @@ class CurveFitROI(imset.ImageSetROI):
         n_vox, n_meas = self.voxel_data_array.shape
         self.include_vector = np.ones((n_meas), dtype=int)
         self.exclude_reason_vector = [[] for x in range(n_meas)]
-        # a measure of standard deviation if averaging is applied to the ROI
+        # a measure of standard deviation and the central voxel indexes if averaging is applied to the ROI
         self.voxel_data_stddev = None
+        self.av_voxel_data_xyz = copy.deepcopy(self.voxel_data_xyz)
         # flags
         self.is_clipped = False
         self.is_averaged = False
+        self.is_slice_averaged = False
         self.is_normalised = False
         # colour settings
         self.colour = mu.ColourSettings()
 
     def exclude_clipped_values(self, percent_clipped_voxels):
-        if self.is_averaged or self.is_normalised:
+        if self.is_averaged or self.is_slice_averaged or self.is_normalised:
             mu.log("\t\tCurveFitROI::exclude_clipped_values(): skipping exclusion as averaging or "
                    "normalisation has been applied [exclusion should be performed first on"
                    "raw voxel values]", LogLevels.LOG_WARNING)
@@ -408,9 +414,114 @@ class CurveFitROI(imset.ImageSetROI):
 
     def average_over_roi(self):
         n_vox, n_meas = self.voxel_data_array.shape
+        # average voxel signal data
         self.voxel_data_stddev = np.reshape(np.nanstd(self.voxel_data_array, axis=0), (1, n_meas))
         self.voxel_data_array = np.reshape(np.nanmean(self.voxel_data_array, axis=0), (1, n_meas))
+        # average parameter maps
+        if self.voxel_pmap_dict is not None:
+            voxel_pmap_dict = OrderedDict()
+            for pmap_name, pmap_arr in self.voxel_pmap_dict.items():
+                voxel_pmap_dict[pmap_name] = np.array([np.nanmean(pmap_arr)])
+            self.voxel_pmap_dict = voxel_pmap_dict
+        # average derived maps (i.e. scanner ADC map)
+        if self.derived_map_dict is not None:
+            derived_map_dict = OrderedDict()
+            for pmap_label, (pmap_arr, pmap_name, pmap_unit) in self.derived_map_dict.items():
+                pmap_arr_av = np.array([np.nanmean(pmap_arr)])
+                derived_map_dict[pmap_label] = (pmap_arr_av, pmap_name, pmap_unit)
+            self.derived_map_dict = derived_map_dict
+
+        # TODO: review code and check if this 2D/3D check is still required (remove it if not)
+        if len(self.voxel_data_xyz) == 2: #2D
+            self.av_voxel_data_xyz = (np.array([int(np.round(np.nanmean(self.voxel_data_xyz[0])))]),
+                                        np.array([int(np.round(np.nanmean(self.voxel_data_xyz[1])))]))
+        elif len(self.voxel_data_xyz) == 3: #3D
+            self.av_voxel_data_xyz = (np.array([int(np.round(np.nanmean(self.voxel_data_xyz[0])))]),
+                                      np.array([int(np.round(np.nanmean(self.voxel_data_xyz[1])))]),
+                                      np.array([int(np.round(np.nanmean(self.voxel_data_xyz[2])))]))
         self.is_averaged = True
+
+    def average_over_each_slice(self):
+        n_vox, n_meas = self.voxel_data_array.shape
+        # create a coordinate and measurement arrays per slice (for signal, pmaps, dmaps)
+        slice_dx_list = np.unique(self.voxel_data_xyz[0])
+        vox_dict = OrderedDict()
+        pmap_dict = OrderedDict()
+        derived_dict = OrderedDict()
+        for slice_num in slice_dx_list:
+            vox_dict[slice_num] = [[],[]] # xyz data, signal data
+            if self.voxel_pmap_dict is not None:
+                pmap_dict[slice_num] = OrderedDict()
+                for pmap_name, pmap_arr in self.voxel_pmap_dict.items():
+                    pmap_dict[slice_num][pmap_name] = []
+            if self.derived_map_dict is not None:
+                derived_dict[slice_num] = OrderedDict()
+                for dmap_label, (dmap_arr, dmap_name, dmap_unit) in self.derived_map_dict.items():
+                    derived_dict[slice_num][dmap_label] = ([], dmap_name, dmap_unit)
+        # link voxel data to a slice
+        for v_dx in range(n_vox):
+            slice_num = self.voxel_data_xyz[0][v_dx]
+            # add the signal data for each slice
+            vox_dict[slice_num][0].append([self.voxel_data_xyz[0][v_dx],
+                                          self.voxel_data_xyz[1][v_dx],
+                                          self.voxel_data_xyz[2][v_dx]])
+            vox_dict[slice_num][1].append(self.voxel_data_array[v_dx])
+            # add the parameter map data (i.e. cylindrical coords) for each slice
+            if self.voxel_pmap_dict is not None:
+                for pmap_name, pmap_arr in self.voxel_pmap_dict.items():
+                    pmap_dict[slice_num][pmap_name].append(pmap_arr[v_dx])
+            # add the derived map data (i.e. ADC map) for each slice
+            if self.derived_map_dict is not None:
+                for dmap_label, (dmap_arr, dmap_name, dmap_unit) in self.derived_map_dict.items():
+                    derived_dict[slice_num][dmap_label][0].append(dmap_arr[v_dx])
+
+        # average over each slice
+        n_slices = len(slice_dx_list)
+        vox_x, vox_y, vox_z = [], [], []
+        vox_data_av_array = np.zeros([n_slices, n_meas])
+        vox_data_stddev_array = np.zeros([n_slices, n_meas])
+        vox_data_xyz_array = np.zeros([3, n_slices])
+        if self.voxel_pmap_dict is not None:
+            pmap_dict_av = OrderedDict()
+            for pmap_name, pmap_arr in self.voxel_pmap_dict.items():
+                pmap_dict_av[pmap_name] = np.zeros([n_slices])
+        if self.derived_map_dict is not None:
+            dmap_dict_av = OrderedDict()
+            for dmap_label, (dmap_arr, dmap_name, dmap_unit) in self.derived_map_dict.items():
+                dmap_dict_av[dmap_label] = (np.zeros([n_slices]), dmap_name, dmap_unit)
+        for slice_dx, slice_num in enumerate(slice_dx_list):
+            # average the slice coordinates to get a spatial centroid
+            slice_xyz = np.array(vox_dict[slice_num][0])
+            print("slice list:", slice_dx_list)
+            print("slice xyz shape:", slice_xyz.shape)
+            vox_data_xyz_array[0, slice_dx] = int(np.round(np.nanmean(slice_xyz[:, 0])))
+            vox_data_xyz_array[1, slice_dx] = int(np.round(np.nanmean(slice_xyz[:, 1])))
+            vox_data_xyz_array[2, slice_dx] = int(np.round(np.nanmean(slice_xyz[:, 2])))
+            # average the signal data on a given slice
+            slice_data = vox_dict[slice_num][1]
+            vox_data_av_array[slice_dx, :] = np.reshape(np.nanmean(slice_data, axis=0), (1, n_meas))
+            vox_data_stddev_array[slice_dx, :] = np.reshape(np.nanstd(slice_data, axis=0), (1, n_meas))
+            # average the parameter maps on a given slice
+            if self.voxel_pmap_dict is not None:
+                for pmap_name, pmap_arr in self.voxel_pmap_dict.items():
+                    pmap_dict_av[pmap_name][slice_dx] = np.array([np.nanmean(pmap_dict[slice_num][pmap_name])])
+            # average the derived maps on a given slice
+            if self.derived_map_dict is not None:
+                for dmap_label, (dmap_arr, dmap_name, dmap_unit) in self.derived_map_dict.items():
+                    dmap_dict_av[dmap_label][0][slice_dx] = np.array([np.nanmean(derived_dict[slice_num][dmap_label][0])])
+
+        # assign to class variables
+        self.voxel_data_array = vox_data_av_array
+        self.voxel_data_stddev = vox_data_av_array
+        self.av_voxel_data_xyz = (vox_data_xyz_array[0, :],
+                                  vox_data_xyz_array[1, :],
+                                  vox_data_xyz_array[2, :])
+        if self.voxel_pmap_dict is not None:
+            self.voxel_pmap_dict = pmap_dict_av
+        if self.derived_map_dict is not None:
+            self.derived_map_dict = dmap_dict_av
+        # flag slice averaging complete
+        self.is_slice_averaged = True
 
     def normalise_to_max_in_roi(self):
         # check there included measurements
@@ -424,7 +535,7 @@ class CurveFitROI(imset.ImageSetROI):
         #         (self.label), LogLevels.LOG_INFO)
         norm_factor = np.nanmax(self.voxel_data_array.flatten())
         self.voxel_data_array = self.voxel_data_array / norm_factor
-        if self.is_averaged:
+        if self.is_averaged or self.is_slice_averaged:
             self.voxel_data_stddev = self.voxel_data_stddev/norm_factor
         self.is_normalised = True
 
@@ -448,7 +559,7 @@ class CurveFitROI(imset.ImageSetROI):
             norm_factor = np.nanmax(vox_series)
             self.voxel_data_array[vox_dx, :] = vox_series/norm_factor
         # corner case
-        if self.is_averaged:
+        if self.is_averaged or self.is_slice_averaged:
             self.voxel_data_stddev = self.voxel_data_stddev / norm_factor
         self.is_normalised = True
 
@@ -541,6 +652,9 @@ class CurveFitROI(imset.ImageSetROI):
         data_list = []
         include_meas_vals = self.get_measurement_series()
         exclude_meas_vals = self.get_excluded_measurement_series()
+        voxel_xyz = self.voxel_data_xyz
+        if self.is_averaged or self.is_slice_averaged:
+            voxel_xyz = self.av_voxel_data_xyz
         for vox_dx in range(self.get_number_fit_voxels()):
             # pull out the parameter maps for the current voxel
             vox_pmap_dict = OrderedDict()
@@ -557,14 +671,14 @@ class CurveFitROI(imset.ImageSetROI):
                                                           [True, False]):
                 for meas_val, vox_val in zip(meas_vals, vox_series):
                     vox_z, vox_y, vox_x = None, None, None
-                    assert len(self.voxel_data_xyz) >= 2, "CurveFitROI::add_voxel_data_to_df(): unexpected data shape not 2D or 3D"
-                    if len(self.voxel_data_xyz) == 2:
-                        vox_y, vox_x = self.voxel_data_xyz[0][vox_dx], \
-                                       self.voxel_data_xyz[1][vox_dx]
-                    if len(self.voxel_data_xyz) == 3:
-                        vox_z, vox_y, vox_x = self.voxel_data_xyz[0][vox_dx], \
-                                              self.voxel_data_xyz[1][vox_dx], \
-                                              self.voxel_data_xyz[2][vox_dx]
+                    assert len(voxel_xyz) >= 2, "CurveFitROI::add_voxel_data_to_df(): unexpected data shape not 2D or 3D"
+                    if len(voxel_xyz) == 2:
+                        vox_y, vox_x = voxel_xyz[0][vox_dx], \
+                                       voxel_xyz[1][vox_dx]
+                    if len(voxel_xyz) == 3:
+                        vox_z, vox_y, vox_x = voxel_xyz[0][vox_dx], \
+                                              voxel_xyz[1][vox_dx], \
+                                              voxel_xyz[2][vox_dx]
                     vox_meas_list = [mu.ROI_LABEL_IDX_MAP[self.label], self.label, vox_dx, vox_x, vox_y, vox_z, meas_val, vox_val]
                     for param_name in cf_model.get_ordered_parameter_symbols():
                         if self.has_been_fit():
@@ -574,7 +688,7 @@ class CurveFitROI(imset.ImageSetROI):
                     vox_meas_list.append(self.reference_value)
                     vox_meas_list.append(self.initialisation_value)
                     vox_meas_list.append(is_included)
-                    vox_meas_list.append(self.is_averaged)
+                    vox_meas_list.append(self.is_averaged or self.is_slice_averaged)
                     vox_meas_list.append(self.is_normalised)
                     vox_meas_list.append(cf_model.get_preproc_name())
                     vox_meas_list.append(cf_model.get_model_name())
@@ -639,6 +753,7 @@ class CurveFitROI(imset.ImageSetROI):
                     data_list.append(fit_err_vec[0]) # use the covariance of the parameter fit on a single average signal
                 else:
                     data_list.append(np.nanstd(fit_vec)) # calculate the stddev of the parameter fit on all voxels
+                                                         # or in the case of slice averaging the stddev of fit on all slices
                 if param_name == symbol_of_interest:
                     data_list.append(mean_val-ref_val)
                     data_list.append(100.0 * (mean_val-ref_val)/ref_val)
@@ -650,7 +765,7 @@ class CurveFitROI(imset.ImageSetROI):
                     data_list.append(np.nan) # percent error
         data_list.append(ref_val)
         data_list.append(self.initialisation_value)
-        data_list.append(self.is_averaged)
+        data_list.append(self.is_averaged or self.is_slice_averaged)
         data_list.append(self.is_normalised)
         data_list.append(self.is_clipped)
         data_list.append(cf_model.get_preproc_name())
@@ -915,6 +1030,11 @@ class CurveFitAbstract(ABC):
                        % self.get_model_name(),
                        LogLevels.LOG_INFO)
                 self.__preproc_average_values_over_roi()
+            elif self.preproc_dict['average'] == AveragingOptions.AVERAGE_PER_SLICE:
+                mu.log("CurveFit(%s)::preprocess_roi_data(): \t\t averaging the signal over each slice ..."
+                       % self.get_model_name(),
+                       LogLevels.LOG_INFO)
+                self.__preproc_average_values_over_slice()
         if 'normalise' in self.preproc_dict.keys():
             if self.preproc_dict['normalise'] == NormalisationOptions.ROI_MAX:
                 mu.log("CurveFit(%s)::preprocess_roi_data(): \t\t normalising to the ROI maximum ..."
@@ -944,6 +1064,10 @@ class CurveFitAbstract(ABC):
     def __preproc_average_values_over_roi(self):
         for roi_dx, cf_roi in self.cf_rois.items():
             cf_roi.average_over_roi()
+
+    def __preproc_average_values_over_slice(self):
+        for roi_dx, cf_roi in self.cf_rois.items():
+            cf_roi.average_over_each_slice()
 
     def __preproc_normalise_to_max_in_roi(self):
         for roi_dx, cf_roi in self.cf_rois.items():

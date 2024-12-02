@@ -23,42 +23,27 @@ body:
     description: >
       A short code example that reproduces the problem/missing feature. It
       should be self-contained, i.e., can be copy-pasted into the Python
-      interpreter or run as-is via `python myproblem.py`.
+      interpreter
     placeholder: |
-      import numpy as np
       << your code here >>
     render: python
   validations:
-    required: true
+    required: false
   
 - type: textarea
   attributes:
     label: "Error message:"
     description: >
       Please include full error message, if any.
-      If you are reporting a segfault please include a GDB traceback,
-      which you can generate by following
-      [these instructions](https://github.com/numpy/numpy/blob/main/doc/source/dev/development_environment.rst#debugging).
     placeholder: |
-      << Full traceback starting from `Traceback: ...` >>
+      << Copy and paste your error message here >>
     render: shell
 
 - type: textarea
   attributes:
-    label: "Python and NumPy Versions:"
+    label: "Python and mrbias Versions:"
     description: >
-      Output from `import sys, numpy; print(numpy.__version__); print(sys.version)`.
-  validations:
-    required: true
-
-- type: textarea
-  attributes:
-    label: "Runtime Environment:"
-    description: |
-      1. Install `threadpoolctl` (e.g. with `pip` or `conda`)
-      2. Paste the output of `import numpy; numpy.show_runtime()`.
-
-      Note: Only valid for NumPy 1.24 or newer.
+      Output from `import sys, mrbias; print(mribas.__version__); print(sys.version)`.
   validations:
     required: false
 

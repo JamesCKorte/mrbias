@@ -3,6 +3,8 @@ Magnetic Resonance BIomarker Accreditation Software (MR-BIAS) is an automated to
 
 [![PyPI Downloads](https://img.shields.io/pypi/dm/mrbias.svg?label=PyPI%20downloads)](
 https://pypi.org/project/mrbias/)
+[![Relaxometry Paper](https://img.shields.io/badge/DOI-10.1088%2Fs1361--6560%2Fsacbcbb-blue)](
+https://doi.org/10.1088/1361-6560/acbcbb)
 
 ### Documentation
 We recently shared the motivation and basic usage details of the software during [a presentation at the ESMRMB MRITogether conference](https://www.youtube.com/watch?v=QgFzDnjO4Jw&list=PLeDygc8TN_J65c0jM0ms__diTMylbEk9l&index=14&t=18m14s). We also provide some basic instructions for using the software as follows, 

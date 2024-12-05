@@ -207,6 +207,7 @@ class MRBIAS(object):
         mu.log("-" * 100, LogLevels.LOG_INFO)
         roi_template = self.detect_config.get_template()
         roi_detect_method = self.detect_config.get_detection_method()
+        roi_shape_fine_tune = self.detect_config.get_shape_fine_tune()
         roi_flip_cap_series_numbers = self.detect_config.get_flip_cap_series_numbers()
         roi_is_partial_fov = self.detect_config.get_registration_partial_fov()
         roi_use_first_detection_for_all = self.detect_config.get_use_first_detection_only()
@@ -310,7 +311,8 @@ class MRBIAS(object):
 
                 # create a roi detector
                 detect_kwargs = {'flip_cap_dir': False,
-                                 'debug_vis': False}
+                                 'debug_vis': False,
+                                 'fine_tune_rois': roi_shape_fine_tune}
                 if geom_image.series_number in roi_flip_cap_series_numbers:
                     detect_kwargs['flip_cap_dir'] = True
                 roi_detector = roi_detect.ROIDetector(geom_image, roi_template_dir,
@@ -972,6 +974,8 @@ class MRIBiasROIDetectConfig(MRIBIASConfiguration):
         return self.get("registration_method", "two_stage_msme-GS_correl-GD")
     def get_flip_cap_series_numbers(self):
         return self.get("flip_cap_series_numbers", [])
+    def get_shape_fine_tune(self):
+        return self.get("shape_fine_tune", False)
     def get_registration_partial_fov(self):
         return self.get("partial_fov", False)
     def get_use_first_detection_only(self):

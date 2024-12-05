@@ -52,7 +52,7 @@ import mrbias.misc_utils as mu
 # -------------------------------------------------------------------------------
 # Visually check the figure which is drawn, showing the ROIs on the template image
 #################################################################################
-ROI_TEMPLATE_NAME = "philips_ingenia_1p5T"
+ROI_TEMPLATE_NAME = "siemens_diffusion_no_ice"
 #################################################################################
 
 

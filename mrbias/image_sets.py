@@ -727,7 +727,8 @@ class ImageSetT1VIR(ImageSetAbstract):
                  scale_slope_list=None,
                  scale_intercept_list=None,
                  scanner_make=None, scanner_model=None, scanner_serial_number=None, scanner_field_strength=None,
-                 study_date=None, study_time=None):
+                 study_date=None, study_time=None,
+                 image_filepaths_list=None):
         super().__init__(set_label=set_label,
                          sitk_im_list=sitk_im_list,
                          measurement_variable_list=inversion_time_list,
@@ -740,7 +741,8 @@ class ImageSetT1VIR(ImageSetAbstract):
                          rescale_slope_list=rescale_slope_list, rescale_intercept_list=rescale_intercept_list,
                          scale_slope_list=scale_slope_list, scale_intercept_list=scale_intercept_list,
                          scanner_make=scanner_make, scanner_model=scanner_model, scanner_serial_number=scanner_serial_number,
-                         scanner_field_strength=scanner_field_strength, date_acquired=study_date, time_acquired=study_time)
+                         scanner_field_strength=scanner_field_strength, date_acquired=study_date, time_acquired=study_time,
+                         image_filepaths_list=image_filepaths_list)
     def get_inversion_times(self):
         return super().get_measurement_variables()
     def set_T1_roi_mask(self, roi_sitk_image):
@@ -803,7 +805,8 @@ class ImageSetT1VFA(ImageSetAbstract):
                  scale_slope_list=None,
                  scale_intercept_list=None,
                  scanner_make=None, scanner_model=None, scanner_serial_number=None, scanner_field_strength=None,
-                 study_date=None, study_time=None):
+                 study_date=None, study_time=None,
+                 image_filepaths_list=None):
         super().__init__(set_label=set_label,
                          sitk_im_list=sitk_im_list,
                          measurement_variable_list=flip_angle_list,
@@ -816,7 +819,8 @@ class ImageSetT1VFA(ImageSetAbstract):
                          rescale_slope_list=rescale_slope_list, rescale_intercept_list=rescale_intercept_list,
                          scale_slope_list=scale_slope_list, scale_intercept_list=scale_intercept_list,
                          scanner_make=scanner_make, scanner_model=scanner_model, scanner_serial_number=scanner_serial_number,
-                         scanner_field_strength=scanner_field_strength, date_acquired=study_date, time_acquired=study_time)
+                         scanner_field_strength=scanner_field_strength, date_acquired=study_date, time_acquired=study_time,
+                         image_filepaths_list=image_filepaths_list)
     def get_flip_angles(self):
         return super().get_measurement_variables()
     def set_T1_roi_mask(self, roi_sitk_image):
@@ -877,7 +881,8 @@ class ImageSetT2MSE(ImageSetAbstract):
                  scale_slope_list=None,
                  scale_intercept_list=None,
                  scanner_make=None, scanner_model=None, scanner_serial_number=None, scanner_field_strength=None,
-                 study_date=None, study_time=None):
+                 study_date=None, study_time=None,
+                 image_filepaths_list=None):
         super().__init__(set_label=set_label,
                          sitk_im_list=sitk_im_list,
                          measurement_variable_list=echo_time_list,
@@ -890,7 +895,8 @@ class ImageSetT2MSE(ImageSetAbstract):
                          rescale_slope_list=rescale_slope_list, rescale_intercept_list=rescale_intercept_list,
                          scale_slope_list=scale_slope_list, scale_intercept_list=scale_intercept_list,
                          scanner_make=scanner_make, scanner_model=scanner_model, scanner_serial_number=scanner_serial_number,
-                         scanner_field_strength=scanner_field_strength, date_acquired=study_date, time_acquired=study_time)
+                         scanner_field_strength=scanner_field_strength, date_acquired=study_date, time_acquired=study_time,
+                         image_filepaths_list=image_filepaths_list)
     def get_echo_times(self):
         return super().get_measurement_variables()
     def set_T2_roi_mask(self, roi_sitk_image):
@@ -1029,7 +1035,8 @@ class ImageSetT2Star(ImageSetAbstract):
                  rescale_slope=None,
                  rescale_intercept=None,
                  scanner_make=None, scanner_model=None, scanner_serial_number=None, scanner_field_strength=None,
-                 study_date=None, study_time=None):
+                 study_date=None, study_time=None,
+                 image_filepaths_list=None):
         super().__init__(set_label=set_label,
                          sitk_im_list=sitk_im_list,
                          measurement_variable_list=echo_time_list,
@@ -1041,7 +1048,8 @@ class ImageSetT2Star(ImageSetAbstract):
                          bits_allocated=bits_allocated, bits_stored=bits_stored,
                          rescale_slope=rescale_slope, rescale_intercept=rescale_intercept,
                          scanner_make=scanner_make, scanner_model=scanner_model, scanner_serial_number=scanner_serial_number,
-                         scanner_field_strength=scanner_field_strength, date_acquired=study_date, time_acquired=study_time)
+                         scanner_field_strength=scanner_field_strength, date_acquired=study_date, time_acquired=study_time,
+                         image_filepaths_list=image_filepaths_list)
     def get_echo_times(self):
         return super().get_measurement_variables()
     def set_T2_roi_mask(self, roi_sitk_image):

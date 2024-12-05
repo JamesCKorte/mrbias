@@ -31,6 +31,7 @@ import numpy as np
 import scipy.signal as scisig
 from scipy import ndimage
 from scipy import spatial as scispat
+from scipy import interpolate as scipolate
 from skimage import feature as skim_feat
 from skimage import filters as skim_fltr
 from skimage import measure as skim_meas
@@ -126,6 +127,12 @@ class ShapeDiffusionNIST(ShapeDetectionMethodAbstract):
         self.axi_ctr_dxs_mov = None
         self.axi_inner_dxs_mov = None
         self.axi_outer_dxs_mov = None
+        # storage for fine-tuning visualisation
+        self.ft_centroid0_dict = None  # initial centroid from detection
+        self.ft_centroid1_dict = None  # centroid following fine-tuning
+        self.ft_bbox_dict = None  # bounding box for crop region
+        self.ft_circle_dict = None  # detected circle centroids
+        self.ft_curve_fit_dict = None
         # other flags
         self.debug_vis = debug_vis
 
@@ -264,6 +271,8 @@ class ShapeDiffusionNIST(ShapeDetectionMethodAbstract):
 
     def write_pdf_summary_page(self, c, sup_title=None):
         self.write_pdf_shape_detection_page(c, sup_title=sup_title)
+        if self.fine_tune_rois:
+            self.write_pdf_fine_tuning_page(c, sup_title=sup_title)
         self.write_pdf_result_page(c, sup_title=sup_title)
 
     def write_pdf_shape_detection_page(self, c, sup_title=None):
@@ -377,6 +386,100 @@ class ShapeDiffusionNIST(ShapeDetectionMethodAbstract):
                 ax.plot(x_mm, tophat(x_mm, 0.0, cap_top_level0, c_mid_mm, self.bottlecap_height_mm), 'r-', linewidth=2.0)
 
 
+
+        if f is not None:
+            # draw it on the pdf
+            pil_f = mu.mplcanvas_to_pil(f)
+            width, height = pil_f.size
+            height_3d, width_3d = pdf.page_width * (height / width), pdf.page_width
+            c.drawImage(ImageReader(pil_f),
+                        0,
+                        pdf.page_height - pdf.top_margin - height_3d - pdf.line_width,
+                        width_3d,
+                        height_3d)
+            plt.close(f)
+            c.showPage()  # new page
+
+    def write_pdf_fine_tuning_page(self, c, sup_title=None):
+        pdf = mu.PDFSettings()
+        c.setFont(pdf.font_name, pdf.small_font_size)  # set to a fixed width font
+
+        if sup_title is None:
+            sup_title = "ROI Detection: Summary <%s>" % self.target_geo_im.get_label()
+
+        # draw the summary figure
+        # -----------------------------------------------------------
+        # setup figure
+        f = None
+        if self.get_image_transform() is not None:
+            f, axes = plt.subplots(3, 13)
+            f.set_tight_layout(True)
+            f.suptitle(sup_title)
+            f.set_size_inches(12, 8)
+
+            fixed_roi_dict = self.roi_template.get_dw_roi_dict()
+            bottle_arr = sitk.GetArrayFromImage(self.moving_im)
+            spc_arr = np.array(self.moving_im.GetSpacing())
+            in_plane_spacing_mm = (spc_arr[0] + spc_arr[1]) / 2.
+            thru_plane_spacing_mm = spc_arr[2]
+
+            for r_dx, ((roi_label, fixed_roi), ax_axi, ax_cor, ax_sag) in enumerate(zip(fixed_roi_dict.items(),
+                                                                                        axes[0],
+                                                                                        axes[1],
+                                                                                        axes[2])):
+                ax_axi.set_title(fixed_roi.label)
+                cx, cy, cz = self.ft_centroid0_dict[fixed_roi.label]
+                cx1, cy1, cz1 = self.ft_centroid1_dict[fixed_roi.label]
+                bot_half_height_vox, bot_radius_vox = self.ft_bbox_dict[fixed_roi.label]
+                circ_dx_x, circ_dx_y, circ_dx_z = self.ft_circle_dict[fixed_roi.label]
+                curve_dx_x, curve_dx_y, curve_dx_z = self.ft_curve_fit_dict[fixed_roi.label]
+
+                padd_y, padd_x = None, None
+                if (cy - bot_radius_vox) < 0:
+                    padd_y = -(cy - bot_radius_vox)
+                if (cx - bot_radius_vox) < 0:
+                    padd_x = -(cx - bot_radius_vox)
+                bottle_crop_arr = bottle_arr[
+                                  cz - bot_half_height_vox:cz + bot_half_height_vox,
+                                  np.max([0, cy - bot_radius_vox]):     cy + bot_radius_vox,
+                                  np.max([0, cx - bot_radius_vox]):     cx + bot_radius_vox]
+                if padd_y is not None:
+                    bottle_crop_arr = np.pad(bottle_crop_arr, ((0, 0), (padd_y, 0), (0, 0)),
+                                             'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+                if padd_x is not None:
+                    bottle_crop_arr = np.pad(bottle_crop_arr, ((0, 0), (0, 0), (padd_x, 0)),
+                                             'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+                bottle_crop_im = sitk.GetImageFromArray(bottle_crop_arr)
+                bottle_crop_im.SetSpacing(spc_arr)
+                if ax_axi is not None:
+                    im_slc, extent = mu.get_slice_and_extent(bottle_crop_im, OrientationOptions.AXI)
+                    ax_axi.imshow(im_slc, extent=extent, cmap="gray", origin='lower')
+                    ax_axi.axhline(bot_radius_vox * in_plane_spacing_mm, color='r')
+                    ax_axi.axhline(cz1 * in_plane_spacing_mm, color='r', linestyle=':')
+                    ax_axi.axvline(bot_radius_vox * in_plane_spacing_mm, color='b')
+                    ax_axi.axvline(cy1 * in_plane_spacing_mm, color='b', linestyle=":")
+                if ax_cor is not None:
+                    im_slc, extent = mu.get_slice_and_extent(bottle_crop_im, OrientationOptions.COR)
+                    ax_cor.imshow(im_slc, extent=extent, cmap="gray", origin='lower')
+                    ax_cor.axvline(bot_radius_vox * in_plane_spacing_mm, color='b')
+                    ax_cor.plot(cy1 * np.ones_like(circ_dx_x) * in_plane_spacing_mm,
+                                circ_dx_x * thru_plane_spacing_mm, 'b:')
+                    ax_cor.scatter(circ_dx_y * in_plane_spacing_mm,
+                                   circ_dx_x * thru_plane_spacing_mm, color='g')
+                    ax_cor.plot(curve_dx_y * in_plane_spacing_mm, curve_dx_x * thru_plane_spacing_mm, 'g')
+                if ax_sag is not None:
+                    im_slc, extent = mu.get_slice_and_extent(bottle_crop_im, OrientationOptions.SAG)
+                    ax_sag.imshow(im_slc, extent=extent, cmap="gray", origin='lower')
+                    ax_sag.axvline(bot_radius_vox * in_plane_spacing_mm, color='r')
+                    ax_sag.plot(cz1 * np.ones_like(circ_dx_x) * in_plane_spacing_mm,
+                                circ_dx_x * thru_plane_spacing_mm, 'r:')
+                    ax_sag.scatter(circ_dx_z * in_plane_spacing_mm,
+                                   circ_dx_x * thru_plane_spacing_mm, color='g')
+                    ax_sag.plot(curve_dx_z * in_plane_spacing_mm, curve_dx_x * thru_plane_spacing_mm, 'g')
+                for ax in [ax_axi, ax_cor, ax_sag]:
+                    if ax is not None:
+                        ax.set_xticks([])
+                        ax.set_yticks([])
 
         if f is not None:
             # draw it on the pdf
@@ -1211,8 +1314,13 @@ class ShapeDiffusionNIST(ShapeDetectionMethodAbstract):
         # get transform for between fixed to moving rotations only
         tx_rot_matrix = mu.get_homog_matrix_from_transform(self.tx1_mov)
         if self.fine_tune_rois:
-            ft_f, ft_axes = plt.subplots(3, 13)
-            ft_f.set_tight_layout(True)
+            # setup storage of variables needed for fine-tuning visualisation
+            self.ft_centroid0_dict = OrderedDict()  # initial centroid from detection
+            self.ft_centroid1_dict = OrderedDict()  # centroid following fine-tuning
+            self.ft_bbox_dict = OrderedDict()  # bounding box for crop region
+            self.ft_circle_dict = OrderedDict()  # detected circle centroids
+            self.ft_curve_fit_dict = OrderedDict()  # curve fit to detected circles
+
         for r_dx, (roi_label, fixed_roi) in enumerate(fixed_roi_dict.items()):
             for cx, cy, cz, label in moving_coords_and_label_list:
                 mov_label = DW_ROI_LABEL_IDX_MAP[label]
@@ -1233,10 +1341,7 @@ class ShapeDiffusionNIST(ShapeDetectionMethodAbstract):
                     if self.fine_tune_rois:
                         # perform another local ellipse detection to correct for spatial distortion
                         moving_roi = self.__fine_tune_roi_on_moving_image(cx, cy, cz,
-                                                                          dx, dy, dz, fixed_roi,
-                                                                          ax_axi=ft_axes[0][r_dx],
-                                                                          ax_cor=ft_axes[1][r_dx],
-                                                                          ax_sag=ft_axes[2][r_dx])
+                                                                          dx, dy, dz, fixed_roi)
                     else:
                         if isinstance(fixed_roi, ROICylinder):
                             # label, roi_index, ctr_vox_coords, radius_mm, height_mm
@@ -1246,53 +1351,119 @@ class ShapeDiffusionNIST(ShapeDetectionMethodAbstract):
                                                      fixed_roi.height_mm)
                     # add it to a dictionary
                     moving_roi_dict[roi_label] = moving_roi
-        if self.fine_tune_rois: # DEBUG
-            plt.show()  # DEBUG
-            assert False # DEBUG
+
         # make the ROIImage to return
         return ROIImage(self.moving_im, moving_roi_dict)
 
     def __fine_tune_roi_on_moving_image(self,
                                         cx, cy, cz,
                                         dx, dy, dz, fixed_roi,
-                                        padd_inplane_mm=10.0,
-                                        ax_axi=None, ax_cor=None, ax_sag=None):
+                                        padd_inplane_mm=10.0, padd_thru_plane_mm=0.):
         # get spacing & assume spacing is isotropic in 2D plane
         spc_arr = np.array(self.moving_im.GetSpacing())
         in_plane_spacing_mm = (spc_arr[0] + spc_arr[1]) / 2.
         thru_plane_spacing_mm = spc_arr[2]
         # crop the image to the bottle based on the ROI centroid
-        bot_half_height_vox = int(np.round(self.bottle_height_mm/thru_plane_spacing_mm/2.0))
+        bot_half_height_vox = int(np.round((self.bottle_height_mm+2*padd_thru_plane_mm)/thru_plane_spacing_mm/2.0))
         bot_radius_vox = int(np.round((self.bottle_radius_mm+padd_inplane_mm)/in_plane_spacing_mm))
         bottle_arr = sitk.GetArrayFromImage(self.moving_im)
-        print("Bottle array:", bottle_arr.shape)
+        padd_y, padd_x = None, None
+        if (cy-bot_radius_vox) < 0:
+            padd_y = -(cy-bot_radius_vox)
+        if (cx-bot_radius_vox) < 0:
+            padd_x = -(cx-bot_radius_vox)
         bottle_crop_arr = bottle_arr[
                           cz-bot_half_height_vox:cz+bot_half_height_vox,
-                          cy-bot_radius_vox:     cy+bot_radius_vox,
-                          cx-bot_radius_vox:     cx+bot_radius_vox]
-        print("Bottle crop array:", bottle_crop_arr.shape)
-        bottle_crop_im = sitk.GetImageFromArray(bottle_crop_arr)
-        bottle_crop_im.SetSpacing(spc_arr)
-        if ax_axi is not None:
-            im_slc, extent = mu.get_slice_and_extent(bottle_crop_im, OrientationOptions.AXI)
-            ax_axi.imshow(im_slc, extent=extent, cmap="gray", origin='lower')
-            ax_axi.axhline(bot_radius_vox*in_plane_spacing_mm, color='r')
-            ax_axi.axvline(bot_radius_vox*in_plane_spacing_mm, color='b')
-            ax_axi.set_xticks([])
-            ax_axi.set_yticks([])
-        if ax_cor is not None:
-            im_slc, extent = mu.get_slice_and_extent(bottle_crop_im, OrientationOptions.COR)
-            ax_cor.imshow(im_slc, extent=extent, cmap="gray", origin='lower')
-            ax_cor.axvline(bot_radius_vox*in_plane_spacing_mm, color='b')
-            ax_cor.set_xticks([])
-            ax_cor.set_yticks([])
-        if ax_sag is not None:
-            im_slc, extent = mu.get_slice_and_extent(bottle_crop_im, OrientationOptions.SAG)
-            ax_sag.imshow(im_slc, extent=extent, cmap="gray", origin='lower')
-            ax_sag.axvline(bot_radius_vox*in_plane_spacing_mm, color='r')
-            ax_sag.set_xticks([])
-            ax_sag.set_yticks([])
-        return None
+                          np.max([0, cy-bot_radius_vox]):     cy+bot_radius_vox,
+                          np.max([0, cx-bot_radius_vox]):     cx+bot_radius_vox]
+        if padd_y is not None:
+            bottle_crop_arr = np.pad(bottle_crop_arr, ((0, 0), (padd_y, 0), (0, 0)),
+                                     'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+        if padd_x is not None:
+            bottle_crop_arr = np.pad(bottle_crop_arr, ((0, 0), (0, 0), (padd_x, 0)),
+                                     'constant', constant_values=((0, 0), (0, 0), (0, 0)))
+        # look through the slices and fit an ellipse to each slice
+        bot_centre_map = np.zeros_like(bottle_crop_arr, dtype=float)
+        n_slices = bottle_crop_arr.shape[0]
+        centroids = []
+        for slice_dx in range(n_slices):
+            bot_slc_arr = bottle_crop_arr[slice_dx, :, :]
+            # edge detect in preparation for circle detection
+            sigma_vox = self.edge_dect_sigma_mm / in_plane_spacing_mm
+            slc_edges = skim_feat.canny(bot_slc_arr, sigma=sigma_vox,
+                                        low_threshold=0.9,
+                                        high_threshold=1.0)
+            # hough transform
+            bottle_radii_mm = [14., 15.]
+            bot_accums, bot_cx, bot_cy, bot_radii = self.__circle_search(slc_edges, bottle_radii_mm,
+                                                                         in_plane_spacing_mm, n_candidate_circles=1,
+                                                                         enforce_min_distance=False)
+            bot_centre_map[slice_dx, bot_cy, bot_cx] = bot_accums
+            bot_accums, bot_cx, bot_cy, bot_radii = zip(*sorted(list(zip(bot_accums, bot_cx, bot_cy, bot_radii)), key=lambda x: x[0]))
+
+            centroids.append([slice_dx, bot_cx[-1], bot_cy[-1]])
+
+
+        centroids = np.array(centroids)
+        cx_vec = centroids[:, 0]*thru_plane_spacing_mm
+        cy_vec = centroids[:, 1]*in_plane_spacing_mm
+        cz_vec = centroids[:, 2]*in_plane_spacing_mm
+
+        w = np.ones(cx_vec.shape)
+        w[0:2] = 0.05
+        # w[2:4] = 0.2
+        # w[-4:-2] = 0.2
+        w[-1:] = 0.05
+        p_coeff_y = np.polyfit(cx_vec, cy_vec, 1, w=w)
+        p_coeff_z = np.polyfit(cx_vec, cz_vec, 1, w=w)
+        #     ax1.plot(cx_vec, cy_vec, 'xk')
+        #     ax1.plot(cx_vec, np.polyval(p_coeff_y, cx_vec), 'k')
+        #     ax2.plot(cx_vec, cz_vec, 'xk')
+        #     ax2.plot(cx_vec, np.polyval(p_coeff_z, cx_vec), 'k')
+        cy_cor = np.polyval(p_coeff_y, cx_vec)
+        cz_cor = np.polyval(p_coeff_z, cx_vec)
+
+        # try smoothing rather than fitting
+        win_len = int(np.round(len(cx_vec)*2./3.))
+        if (win_len % 2) == 0:
+            win_len = win_len + 1 # make it odd
+        cy_cor = scisig.savgol_filter(cy_vec, window_length=win_len,
+                                      polyorder=1)
+        cz_cor = scisig.savgol_filter(cz_vec, window_length=win_len,
+                                      polyorder=1)
+
+        def reject_outliers(data, m=2):
+            if np.std(data) < 1e-6:
+                return data
+            return data[abs(data - np.median(data)) < m * np.std(data)]
+
+        cy_vec_clean = reject_outliers(cy_vec)
+        cy_lin = np.mean(cy_vec_clean) * np.ones_like(cy_vec)
+
+        cz_vec_clean = reject_outliers(cz_vec)
+        cz_lin = np.mean(cz_vec_clean) * np.ones_like(cz_vec)
+
+        # bounding box parameters
+        self.ft_bbox_dict[fixed_roi.label] = [bot_half_height_vox, bot_radius_vox]
+        # initial cylinder centroid
+        self.ft_centroid0_dict[fixed_roi.label] = [cx, cy, cz]
+        # fine-tuned cylinder centroid
+        cy1 = int(np.round(cy_lin[0]/in_plane_spacing_mm))
+        cz1 = int(np.round(cz_lin[0]/in_plane_spacing_mm))
+        self.ft_centroid1_dict[fixed_roi.label] = [cx, cy1, cz1]
+        # detected circles
+        self.ft_circle_dict[fixed_roi.label] = [centroids[:, 0], centroids[:, 1], centroids[:, 2]]  # detected circle centroids
+        self.ft_curve_fit_dict[fixed_roi.label] = [cx_vec/thru_plane_spacing_mm,
+                                                   cy_cor/in_plane_spacing_mm,
+                                                   cz_cor/in_plane_spacing_mm] # curve fit to the detected circles
+
+        # return a cylinder matched to the new centroid
+        return ROICylinder(fixed_roi.label, fixed_roi.roi_index,
+                           [cx+(cy1-bot_radius_vox)+dx,
+                            cy+(cz1-bot_radius_vox)+dy,
+                            cz+dz],
+                           fixed_roi.radius_mm,
+                           fixed_roi.height_mm)
 
 
 

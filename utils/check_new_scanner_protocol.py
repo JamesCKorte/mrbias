@@ -115,6 +115,11 @@ for t2star_imageset in t2star_imagesets:
     mu.log("Found T2*: %s" % type(t2star_imageset), LogLevels.LOG_INFO)
     mu.log("\t\t%s" % str(t2star_imageset), LogLevels.LOG_INFO)
 
+dw_imagesets = scan_session.get_dw_image_sets()
+for dw_imageset in dw_imagesets:
+    mu.log("Found DW: %s" % type(dw_imageset), LogLevels.LOG_INFO)
+    mu.log("\t\t%s" % str(dw_imageset), LogLevels.LOG_INFO)
+
 # give a visual break in the log
 mu.log("", LogLevels.LOG_INFO)
 

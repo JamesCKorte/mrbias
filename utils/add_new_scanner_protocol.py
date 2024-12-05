@@ -51,16 +51,8 @@ import mrbias.misc_utils as mu
 #   The script will output a comma seperated data file with the dicom metadata
 #################################################################################
 DICOM_DIRECTORY = os.path.join(base_dir, "data", "mrbias_testset_B")
-DICOM_DIRECTORY = r"I:\JK\MR-BIAS\Data_From_BenPetra\M231213A_VIRtest"
 OUTPUT_CSV_FILENAME = "dicom_metadata.csv"
 #################################################################################
-
-#################################################################################
-DICOM_DIRECTORY = r"I:\JK\MR-BIAS\EMBRACE\Petra GE Phantom Data\9999_conquestfiles\9999"
-OUTPUT_CSV_FILENAME = "dicom_metadata_GE.csv"
-#################################################################################
-
-
 
 
 # search the dicom directory and strip metadata to write in the output csv file
@@ -72,8 +64,8 @@ df = pd.read_csv(OUTPUT_CSV_FILENAME)
 df.sort_values(by=["SeriesDate", "SeriesTime"], inplace=True)# SeriesDate, SeriesTime
 df_sum = df.drop_duplicates(subset=['SeriesInstanceUID', 'RescaleSlope', 'RescaleIntercept', 'ScaleSlope', 'ScaleIntercept'],
                             keep='last').reset_index(drop = True)
-dicom_summary_tag_list = ['SeriesDescription', 'ProtocolName', 'SequenceName', 'ScanningSequence', 'ScanOptions', 'SequenceVariant', 'ImageType',
-                          'MRAcquisitionType', 'SliceThickness', 'FlipAngle', 'EchoTime', 'RepetitionTime', 'InversionTime']
+dicom_summary_tag_list = ['SeriesDescription', 'SeriesNumber', 'ProtocolName', 'SequenceName', 'ScanningSequence', 'ScanOptions', 'SequenceVariant', 'ImageType',
+                          'MRAcquisitionType', 'SliceThickness', 'PixelSpacing', 'Rows', 'Columns', 'FlipAngle', 'EchoTime', 'RepetitionTime', 'InversionTime']
 # reorder the columns so the useful ones are together at the start
 col_name_list = df_sum.columns.values.tolist()
 for d_tag in dicom_summary_tag_list:

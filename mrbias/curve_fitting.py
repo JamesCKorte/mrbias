@@ -53,12 +53,13 @@ parent, root = file.parent, file.parents[1]
 if str(root) not in sys.path:
     sys.path.insert(1, str(root))
 # import required mrbias modules
-import mrbias.scan_session as scanner
+import mrbias.scan_session as scan_session
 import mrbias.roi_detect as roi_detect
+from mrbias.roi_detection_methods.detection_methods import DetectionOptions
 import mrbias.image_sets as imset
 import mrbias.phantom_reference as phantom
 import mrbias.misc_utils as mu
-from mrbias.misc_utils import LogLevels
+from mrbias.misc_utils import LogLevels, PhantomOptions
 
 
 class NormalisationOptions(IntEnum):
@@ -101,36 +102,69 @@ GOODNESS_OF_FIT_DESC_DICT = {'chisqr': "Chi-square statistic",
                              'bic':    "Bayesian Information Criterion statistic"}
 
 def main():
+    # run_phantom(PhantomOptions.RELAX_SYSTEM) # run a system phantom
+    run_phantom(PhantomOptions.DIFFUSION_NIST)  # run a diffusion phantom
+
+def run_phantom(phan_option):
+    # setup output filenames
+    file_prefix = "curve_fit"
+    if phan_option == PhantomOptions.RELAX_SYSTEM:
+        file_prefix = "curve_fit_sys"
+    elif phan_option == PhantomOptions.DIFFUSION_NIST:
+        file_prefix = "curve_fit_diff"
 
     # setup the logger to write to file
-    mu.initialise_logger("curve_fit.log", force_overwrite=True, write_to_screen=True)
+    mu.initialise_logger("%s.log" % file_prefix, force_overwrite=True, write_to_screen=True)
     # setup a pdf to test the pdf reporting
     pdf = mu.PDFSettings()
-    c = canvas.Canvas("curve_fit.pdf", landscape(pdf.page_size))
+    c = canvas.Canvas("%s.pdf" % file_prefix, landscape(pdf.page_size))
 
+    # target images to test
+    ss = None
+    if phan_option == PhantomOptions.RELAX_SYSTEM:
+        dcm_dir_a = os.path.join(mu.reference_data_directory(), "mrbias_testset_A")
+        ss = scan_session.SystemSessionSiemensSkyra(dcm_dir_a)
+    elif phan_option == PhantomOptions.DIFFUSION_NIST:
+        dcm_dir_a = os.path.join(mu.reference_data_directory(), "mrbias_testset_C")
+        ss = scan_session.DiffusionSessionSiemensSkyra(dcm_dir_a)
 
-    # do full preparation with standard pipeline... (SYSTEM PHANTOM)
+    test_geometric_images = ss.get_geometric_images()
+    test_geo_vec = [test_geometric_images[0]]
+    case_name_vec = ["test_image_0"]
+
+    if phan_option == PhantomOptions.RELAX_SYSTEM:
+        # get the T1 and T2 imagesets
+        t1_vir_imagesets = ss.get_t1_vir_image_sets()
+        t1_vfa_imagesets = ss.get_t1_vfa_image_sets()
+        t2_mse_imagesets = ss.get_t2_mse_image_sets()
+    elif phan_option == PhantomOptions.DIFFUSION_NIST:
+        # get the diffusion weighted imagesets
+        dw_imagesets = ss.get_dw_image_sets()
+
+    # do full preparation with standard pipeline...
     # -----------------------------------------------------
-    # parse a dicom directory for test imaging data
-    test_dcm_dir = os.path.join(mu.reference_data_directory(), "mrbias_testset_A")
-    ss = scanner.SystemSessionSiemensSkyra(test_dcm_dir)
-    # Reference phantom and curve fit initialisation phantom
-    ref_phan = phantom.ReferencePhantomCalibreSystem2(field_strength=3.0,  # Tesla
-                                                      temperature=20.0,
-                                                      serial_number="130-0093")  # Celsius
-    init_phan = phantom.ReferencePhantomCalibreSystemFitInit(field_strength=3.0,  # Tesla
-                                                             temperature=20.0)  # Celsius
-    roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_skyra_3p0T")
-
-    # do full preparation with standard pipeline... (DIFFUSION PHANTOM)
-    # -----------------------------------------------------
-    test_dcm_dir = r"I:\JK\MR-BIAS\Data_From_Maddie\Carr2022_data\01_MONTH"
-    ss = scanner.DiffusionSessionSiemensSkyra(test_dcm_dir) #for DWI
-    ref_phan = phantom.ReferencePhantomDiffusion1(field_strength=3.0,    # Tesla
-                                                  temperature=20.0)        # Celsius
-    init_phan = phantom.ReferencePhantomDiffusionFitInit(field_strength=3.0,  # Tesla
-                                                         temperature=20.0)  # Celsius
-    roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_diffusion")
+    roi_template_dir = None
+    detection_method = None
+    ref_phan, init_phan = None, None
+    if phan_option == PhantomOptions.RELAX_SYSTEM:
+        # Reference phantom and curve fit initialisation phantom
+        ref_phan = phantom.ReferencePhantomCalibreSystem2(field_strength=3.0,  # Tesla
+                                                          temperature=20.0,
+                                                          serial_number="130-0093")  # Celsius
+        init_phan = phantom.ReferencePhantomCalibreSystemFitInit(field_strength=3.0,  # Tesla
+                                                                 temperature=20.0)  # Celsius
+        # detection method
+        roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_skyra_3p0T")
+        detection_method = DetectionOptions.TWOSTAGE_MSEGS_CORELGD
+    elif phan_option == PhantomOptions.DIFFUSION_NIST:
+        # Reference phantom and curve fit initialisation phantom
+        ref_phan = phantom.ReferencePhantomDiffusion1(field_strength=3.0,  # Tesla
+                                                      temperature=0.0)  # Celsius
+        init_phan = phantom.ReferencePhantomDiffusionFitInit(field_strength=3.0,  # Tesla
+                                                             temperature=0.0)  # Celsius
+        # detection method
+        roi_template_dir = os.path.join(mu.reference_template_directory(), "siemens_diffusion_no_ice")
+        detection_method = DetectionOptions.SHAPE_DIFFUSION_NIST
 
     # if a valid scan protocol found load up relevant image sets
     if ss is not None:
@@ -161,13 +195,13 @@ def main():
     # detect the ROIs for curve fitting
     for geom_image in geometric_images_linked:
         roi_detector = roi_detect.ROIDetector(geom_image,
-                                              roi_template_dir)
+                                              roi_template_dir,
+                                              detection_method=detection_method,
+                                              partial_fov=False)
         # detect the ROIs and store the masks on the target image
         roi_detector.detect()
         # add a summary page to the PDF
         roi_detector.write_pdf_summary_page(c)
-
-
 
 
     preproc_dict_a = {'normalise': NormalisationOptions.VOXEL_MAX,

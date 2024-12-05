@@ -108,7 +108,9 @@ DATA_CONFIG_DICT = {"InstituteA": (os.path.join(DATA_BASE_DIR, "InstA_phantomQA"
 #                                    None,
 #                                    1.5)}
 
-TURN_ON_SLICE_AVERAGING = True
+TURN_ON_SLICE_AVERAGING = False
+TURN_ON_ROI_FINE_TUNING = True
+FIT_ALL_VOXELS = False
 
 tmp_filename = 'temp.yaml'
 
@@ -117,11 +119,17 @@ for inst_label, (data_dir, dw_config, estar_config, field_str) in DATA_CONFIG_DI
     # load up the base config, modify the output directory
     dw_config_file, dw_cap_dir_series_numbers = dw_config
     conf = yaml.full_load(open(dw_config_file))
-    base_out_dir = conf['global']['output_directory'] + "_II_r8"
+    base_out_dir = conf['global']['output_directory'] + "_II_r5_h10_ft" #"_II_r8_h10_ft"
+    conf["curve_fitting"]['dw_options']['use_2D_roi'] = False
     if TURN_ON_SLICE_AVERAGING:
-        base_out_dir = conf['global']['output_directory'] + "_II_r8_sliceAv"
+        base_out_dir = conf['global']['output_directory'] + "_II_r8_ft_sliceAv"
         conf["curve_fitting"]['dw_options']['use_2D_roi'] = False
         conf["curve_fitting"]['averaging'] = "voxels_in_slice"
+    if FIT_ALL_VOXELS:
+        base_out_dir = conf['global']['output_directory'] + "_II_r8_h35_ft_allVox"
+        conf["curve_fitting"]['averaging'] = None
+    if TURN_ON_ROI_FINE_TUNING:
+        conf['roi_detection']['shape_fine_tune'] = True
 
 
     inst_path = base_out_dir + '/' + inst_label

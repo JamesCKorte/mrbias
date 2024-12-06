@@ -56,7 +56,7 @@ import mrbias.scan_session as scan_session
 import mrbias.image_sets as image_sets
 
 
-ROI_DETECT_SEED = 987654321 # to make the SimpleITK random sampling reproducable (sitk default uses system clock)
+ROI_DETECT_SEED = 123456789 # to make the SimpleITK random sampling reproducable (sitk default uses system clock)
 
 class DetectionOptions(IntEnum):
     NONE = 0

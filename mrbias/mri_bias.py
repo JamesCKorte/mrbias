@@ -129,27 +129,38 @@ class MRBIAS(object):
         show_unknown_series = self.sorting_config.get_show_unknown_series()
         ss = None
         if scan_protocol == "siemens_skyra_3p0T":
-            ss = scan_session.SystemSessionSiemensSkyra(dicom_directory, show_unknown_series)
+            ss = scan_session.SystemSessionSiemensSkyra(dicom_directory,
+                                                        display_unknown_series=show_unknown_series)
         elif scan_protocol == "philips_marlin_1p5T":
-            ss = scan_session.SystemSessionPhilipsMarlin(dicom_directory, show_unknown_series)
+            ss = scan_session.SystemSessionPhilipsMarlin(dicom_directory,
+                                                         display_unknown_series=show_unknown_series)
         elif scan_protocol == "auckland_cam_3p0T":
-            ss = scan_session.SystemSessionAucklandCAM(dicom_directory, show_unknown_series)
+            ss = scan_session.SystemSessionAucklandCAM(dicom_directory,
+                                                       display_unknown_series=show_unknown_series)
         elif scan_protocol == "siemens_skyra_erin_3p0T":
-            ss = scan_session.SystemSessionSiemensSkyraErin(dicom_directory, show_unknown_series)
+            ss = scan_session.SystemSessionSiemensSkyraErin(dicom_directory,
+                                                            display_unknown_series=show_unknown_series)
         elif scan_protocol == "philips_ingenia_ambitionX":
-            ss = scan_session.SystemSessionPhilipsIngeniaAmbitionX(dicom_directory, show_unknown_series)
+            ss = scan_session.SystemSessionPhilipsIngeniaAmbitionX(dicom_directory,
+                                                                   display_unknown_series=show_unknown_series)
         elif scan_protocol == "philips_marlin_1p5T_avl":
-            ss = scan_session.SystemSessionAVLPhilipsMarlinNoGeo(dicom_directory, show_unknown_series)
+            ss = scan_session.SystemSessionAVLPhilipsMarlinNoGeo(dicom_directory,
+                                                                 display_unknown_series=show_unknown_series)
         elif scan_protocol == "diff_philips_ingenia_ambitionX":
-            ss = scan_session.DiffusionSessionPhilipsIngeniaAmbitionX(dicom_directory, show_unknown_series)
+            ss = scan_session.DiffusionSessionPhilipsIngeniaAmbitionX(dicom_directory,
+                                                                      display_unknown_series=show_unknown_series)
         elif scan_protocol == "diff_siemens_skyra":
-            ss = scan_session.DiffusionSessionSiemensSkyra(dicom_directory, show_unknown_series)
+            ss = scan_session.DiffusionSessionSiemensSkyra(dicom_directory,
+                                                           display_unknown_series=show_unknown_series)
         elif scan_protocol == "diff_philips_ingenia":
-            ss = scan_session.DiffusionSessionPhilipsIngenia(dicom_directory, show_unknown_series)
+            ss = scan_session.DiffusionSessionPhilipsIngenia(dicom_directory,
+                                                             display_unknown_series=show_unknown_series)
         elif scan_protocol == "diff_ge_optima":
-            ss = scan_session.DiffusionSessionGEOptima(dicom_directory, show_unknown_series)
+            ss = scan_session.DiffusionSessionGEOptima(dicom_directory,
+                                                       display_unknown_series=show_unknown_series)
         elif scan_protocol == "diff_ge_discovery":
-            ss = scan_session.DiffusionSessionGEDiscovery(dicom_directory, show_unknown_series)
+            ss = scan_session.DiffusionSessionGEDiscovery(dicom_directory,
+                                                          display_unknown_series=show_unknown_series)
         else:
             mu.log("MR-BIAS::analyse(): skipping analysis as unknown 'scan_protocol' defined for DICOM sorting",
                    LogLevels.LOG_WARNING)
@@ -799,8 +810,8 @@ class MRBIAS(object):
         c.setFont(pdf.font_name, pdf.font_size)  # set to a fixed width font
 
         # Create a banner
-        c.drawString(pdf.left_margin,
-                     pdf.page_height - pdf.page_height/6. + pdf.line_width,
+        c.drawString(2*pdf.left_margin,
+                     pdf.page_height - pdf.page_height/8. + pdf.line_width,
                      "="*130)
         logo_str_list = ["      ___           ___                                             ___           ___         ",
                          "     /__/\         /  /\                 _____        ___          /  /\         /  /\        ",
@@ -814,14 +825,14 @@ class MRBIAS(object):
                          "    \  \:\        \  \:\                \  \::/        \__\/      \  \:\         /__/:/       ",
                          "     \__\/         \__\/                 \__\/                     \__\/         \__\/        "]
         for logo_dx, logo_str in enumerate(logo_str_list):
-            c.drawString(pdf.left_margin + pdf.page_width/8.,
-                         pdf.page_height - pdf.page_height/6. - logo_dx*pdf.line_width,
+            c.drawString(pdf.left_margin + pdf.page_width/6.,
+                         pdf.page_height - pdf.page_height/8. - logo_dx*pdf.line_width,
                          logo_str)
         # c.drawString(pdf.left_margin,
         #              pdf.page_height - pdf.page_height/6. - (len(logo_str_list)+1)*pdf.line_width,
         #              "-"*130)
 
-        line_start_pos = pdf.page_height - pdf.page_height/6. - (len(logo_str_list)+2)*pdf.line_width
+        line_start_pos = pdf.page_height - pdf.page_height/8. - (len(logo_str_list)+2)*pdf.line_width
         # write the version information
         c.drawString(pdf.left_margin + pdf.page_width/6.,
                      line_start_pos,
@@ -836,38 +847,53 @@ class MRBIAS(object):
                    line_start_pos - 2.0*pdf.line_width),
                    relative=0,
                    thickness=0)
-        c.drawString(pdf.left_margin,
+        c.drawString(2*pdf.left_margin,
                      line_start_pos - 3*pdf.line_width,
                      "="*130)
 
-        # write the citation/reference details
-        line_start_pos = line_start_pos - 10.0*pdf.line_width
-        c.drawString(pdf.left_margin + pdf.page_width / 8., line_start_pos - 2 * pdf.line_width,
-                     "-" * 90)
-        c.drawString(pdf.left_margin, line_start_pos - 3*pdf.line_width,
-                     "                  Please cite the following publication:")
-        c.drawString(pdf.left_margin + pdf.page_width/8., line_start_pos - 4*pdf.line_width,
-                     "-"*90)
-        cite_str_list = ["      TITLE: \"Magnetic resonance biomarker assessment software (MR-BIAS): an ",
+        line_start_pos_a = line_start_pos - 8.0 * pdf.line_width
+        cite_str_relx = ["      TITLE: \"Magnetic resonance biomarker assessment software (MR-BIAS): an ",
                          "               automated open-source tool for the ISMRM/NIST system phantom\"",
                          "    AUTHORS: James C Korte, Zachary Chin, Madeline Carr, Lois Holloway, Rick Franich",
                          "    JOURNAL: Physics in Medicine & Biology",
                          "       YEAR: 2023",
                          "        DOI: https://doi.org/10.1088/1361-6560/acbcbb"]
-        for cite_dx, cite_str in enumerate(cite_str_list):
-            c.drawString(pdf.left_margin + pdf.page_width/8.,
-                         line_start_pos - (5+cite_dx)*pdf.line_width,
-                         cite_str)
-        # link the DOI to the publication URL
-        c.linkURL("%s" % mu.MRBIAS_DOI_URL,
-                  (pdf.left_margin + pdf.page_width/8. + 5*pdf.line_width,
-                   line_start_pos - (3+len(cite_str_list))*pdf.line_width,
-                   pdf.left_margin + pdf.page_width/8. + 30*pdf.line_width,
-                   line_start_pos - (3+len(cite_str_list))*pdf.line_width - 2.0*pdf.line_width),
-                   relative=0,
-                   thickness=0)
-        c.drawString(pdf.left_margin + pdf.page_width/8., line_start_pos - (5+len(cite_str_list))*pdf.line_width,
-                     "-"*90)
+        doi_relax = mu.MRBIAS_RELAXOMETRY_DOI_URL
+        line_start_pos_b = line_start_pos - 20.0 * pdf.line_width
+        cite_str_diff = ["      TITLE: \"Open-source quality assurance for multi-parametric MRI: a diffusion analysis",
+                         "               update for the magnetic resonance biomarker assessment software (MR-BIAS)\"",
+                         "    AUTHORS: James C Korte, Stanley A Norris, Madeline E Carr, Lois Holloway, Glenn D Cahoon",
+                         "             Ben Neijndorff, Petra van Houdt, Rick Franich",
+                         "    JOURNAL: UNDER REVIEW",
+                         "       YEAR: UNDER REVIEW",
+                         "        DOI: https://doi.org/TBD"]
+        doi_diffusion = mu.MRBIAS_DIFFUSION_DOI_URL
+
+        # write the citation/reference details (relaxometry phantoms)
+        for line_start_pos, cite_str_list, doi_url, phantom_type in zip([line_start_pos_a, line_start_pos_b],
+                                                                        [cite_str_relx, cite_str_diff],
+                                                                        [doi_relax, doi_diffusion],
+                                                                        ["relaxometry", "diffusion"]):
+            c.drawString(pdf.left_margin + pdf.page_width / 8., line_start_pos - 2 * pdf.line_width,
+                         "-" * 90)
+            c.drawString(pdf.left_margin, line_start_pos - 3*pdf.line_width,
+                         "                  Please cite the following publication (for %s):" % phantom_type)
+            c.drawString(pdf.left_margin + pdf.page_width/8., line_start_pos - 4*pdf.line_width,
+                         "-"*90)
+            for cite_dx, cite_str in enumerate(cite_str_list):
+                c.drawString(pdf.left_margin + pdf.page_width/8.,
+                             line_start_pos - (5+cite_dx)*pdf.line_width,
+                             cite_str)
+            # link the DOI to the publication URL
+            c.linkURL("%s" % doi_url,
+                      (pdf.left_margin + pdf.page_width/8. + 5*pdf.line_width,
+                       line_start_pos - (3+len(cite_str_list))*pdf.line_width,
+                       pdf.left_margin + pdf.page_width/8. + 30*pdf.line_width,
+                       line_start_pos - (3+len(cite_str_list))*pdf.line_width - 2.0*pdf.line_width),
+                       relative=0,
+                       thickness=0)
+            c.drawString(pdf.left_margin + pdf.page_width/8., line_start_pos - (5+len(cite_str_list))*pdf.line_width,
+                         "-"*90)
 
         c.showPage()  # new page
 

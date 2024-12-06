@@ -107,7 +107,7 @@ for bdir_dset_gt, bdir_dset in zip([bdir_dset_gt_1, bdir_dset_gt_2],
         plt.pause(0.01)
     # compare results
     T1_vir_diff_per_roi = df_now["T1 (mean)"] - df_gt["T1 (mean)"]
-    VIR_PASSED = np.abs(np.max(T1_vir_diff_per_roi)) < MAX_T1_ERROR_MS
+    VIR_PASSED = np.max(np.abs(T1_vir_diff_per_roi)) < MAX_T1_ERROR_MS
 
     # compare the T1-VFA results
     df_gt = pd.read_csv(os.path.join(bdir_dset_gt, "t1-vfa_model_fit_summary.csv"))
@@ -125,7 +125,7 @@ for bdir_dset_gt, bdir_dset in zip([bdir_dset_gt_1, bdir_dset_gt_2],
         plt.pause(0.01)
     # compare results
     T1_vfa_diff_per_roi = df_now["T1 (mean)"] - df_gt["T1 (mean)"]
-    VFA_PASSED = np.abs(np.max(T1_vfa_diff_per_roi)) < MAX_T1_ERROR_MS
+    VFA_PASSED = np.max(np.abs(T1_vfa_diff_per_roi)) < MAX_T1_ERROR_MS
 
     # compare the T2-MSE results
     df_gt = pd.read_csv(os.path.join(bdir_dset_gt, "t2-mse_model_fit_summary.csv"))
@@ -143,7 +143,7 @@ for bdir_dset_gt, bdir_dset in zip([bdir_dset_gt_1, bdir_dset_gt_2],
         plt.pause(0.01)
     # compare results
     T2_mse_diff_per_roi = df_now["T2 (mean)"] - df_gt["T2 (mean)"]
-    MSE_PASSED = np.abs(np.max(T2_mse_diff_per_roi)) < MAX_T2_ERROR_MS
+    MSE_PASSED = np.max(np.abs(T2_mse_diff_per_roi)) < MAX_T2_ERROR_MS
 
     # print the test results
     print("T1-VIR difference: average = %.5f ms {min (%.5f ms), max (%.5f ms)} : Test if max < %.5f ms ? [Pass = %s]" %

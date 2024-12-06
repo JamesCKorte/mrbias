@@ -119,7 +119,7 @@ for dw_dx, (dset_gt, dset_now, ax) in enumerate(zip(gt_modelfit_datafile_list,
         plt.pause(0.01)
     # compare results
     DW_diff_per_roi = df_now["D (mean)"] - df_gt["D (mean)"]
-    DW_PASSED = np.abs(np.max(DW_diff_per_roi)) < MAX_ADC_ERROR_UM2pS
+    DW_PASSED = np.max(np.abs(DW_diff_per_roi)) < MAX_ADC_ERROR_UM2pS
 
     # print the test results
     print("DW difference [dw_%03d]: ADC : average = %.5f ms {min (%.5f um^2/s), max (%.5f um^2/s)} : Test if max < %.5f um^2/s ? [Pass = %s]" %

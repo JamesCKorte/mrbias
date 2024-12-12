@@ -25,6 +25,14 @@ Change Log:
 import os
 import yaml
 import gc
+# Code to add the parent directory to allow importing mrbias core modules
+from pathlib import Path
+import sys
+file = Path(__file__).resolve()
+parent, root = file.parent, file.parents[1]
+if str(root) not in sys.path:
+    sys.path.insert(1, str(root))
+# import required mrbias modules
 from mrbias import MRBIAS
 
 DATA_BASE_DIR = r"I:\JK\MR-BIAS\EMBRACE\EMBRACE_DATA2_ALL"
@@ -86,27 +94,6 @@ DATA_CONFIG_DICT = {"InstituteA": (os.path.join(DATA_BASE_DIR, "InstA_phantomQA"
                                    None,
                                    3.0)}
 
-
-# DATA_CONFIG_DICT = {"InstituteK": (os.path.join(DATA_BASE_DIR, "InstK_phantomQA"),  # Siemens 3.0T Skyra (Missing Data?)
-#                                    ("config/embrace/diffusion_siemens_config.yaml", None),
-#                                    None,
-#                                    3.0)}
-
-# DATA_CONFIG_DICT = {"InstituteA": (os.path.join(DATA_BASE_DIR, "InstA_phantomQA"), # Philips 1.5T Ingenia
-#                                    ("config/embrace/diffusion_philips_config.yaml", None),
-#                                    None,
-#                                    1.5)}
-
-# DATA_CONFIG_DICT = {"InstituteB": (os.path.join(DATA_BASE_DIR, "InstB_phantomQA"), # Philips 1.5T Ingenia
-#                                    ("config/embrace/diffusion_philips_config.yaml", None),
-#                                    None,
-#                                    1.5)}
-#
-# # D has ADC maps associated (for checking derived maps settings)
-# DATA_CONFIG_DICT = {"InstituteD": (os.path.join(DATA_BASE_DIR, "InstD_phantomQA"), # Siemens 1.5T Aera
-#                                    ("config/embrace/diffusion_siemens_config.yaml", None),
-#                                    None,
-#                                    1.5)}
 
 TURN_ON_SLICE_AVERAGING = False
 TURN_ON_ROI_FINE_TUNING = True

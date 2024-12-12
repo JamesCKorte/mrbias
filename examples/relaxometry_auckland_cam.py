@@ -19,37 +19,29 @@ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY
 --------------------------------------------------------------------------------
 Change Log:
 --------------------------------------------------------------------------------
-02-August-2021  :               (James Korte) : Initial code for MR-BIAS v0.0
-  23-June-2022  :               (James Korte) : GitHub Release   MR-BIAS v1.0
+  14-July-2023  :               (James Korte) : Example added for collaborator
 """
 import os
-import yaml
+# Code to add the parent directory to allow importing mrbias core modules
+from pathlib import Path
+import sys
+file = Path(__file__).resolve()
+parent, root = file.parent, file.parents[1]
+if str(root) not in sys.path:
+    sys.path.insert(1, str(root))
+# import required mrbias modules
 from mrbias import MRBIAS
 
-
 # specify the configuration file to control the analysis
-configuration_filename = os.path.join("config", "validation_diffusion_config_jk.yaml")
-base_monthly_config_filename = os.path.join(r"config\monthly_diffusion", "validation_diffusion_config_monthX.yaml")
-
+configuration_filename     = os.path.join("..", os.path.join("config", "relaxometry_auckland_cam_config.yaml"))
+configuration_180_filename = os.path.join("..", os.path.join("config", "relaxometry_auckland_cam_180_config.yaml"))
 # specific the dicom directories to analyse
-dicom_directory_str = r"I:\JK\MR-BIAS\Data_From_Maddie\Carr2022_data\%02d_MONTH"
+dicom_directory_a     = r"add a path to your dicom directory"
+dicom_directory_a_180 = r"add a path to your dicom directory for a dataset with 180 degree rotation (this may be the same directory if taken in the same scan session)"
 
-# analyse central slices with a manual ROI placement
-for month_num in range(1, 13):
-    # load up the base config, modify and save for current month
-    manual_conf_filename = os.path.join(r"config\monthly_diffusion",
-                                        "validation_diffusion_config_month%d.yaml" % month_num)
-    conf = yaml.full_load(open(base_monthly_config_filename))
-    conf['roi_detection']['manual_roi_dw_filepath'] = "config/monthly_diffusion/manual_roi_files/MONTH_%02d.yaml" % month_num
-    yaml.dump(conf, open(manual_conf_filename, mode="w+"))
-    # analyse
-    mrb_month = MRBIAS(manual_conf_filename, write_to_screen=True)
-    mrb_month.analyse(dicom_directory_str % month_num)
-    # clear the temporary configuration file
-    os.remove(manual_conf_filename)
-
-# create MRBIAS analysis objects to pull out all voxel data in a large ROI
-mrb = MRBIAS(configuration_filename, write_to_screen=True)
-for month_num in  range(1, 13):
-    mrb.analyse(dicom_directory_str % month_num)
-
+# create a MRBIAS analysis objects
+mrb     = MRBIAS(configuration_filename, write_to_screen=True)
+mrb_180 = MRBIAS(configuration_180_filename, write_to_screen=True)
+# run the analysis (output will be created in the "output_directory" specified in the configuration file)
+mrb.analyse(dicom_directory_a)
+mrb_180.analyse(dicom_directory_a_180)

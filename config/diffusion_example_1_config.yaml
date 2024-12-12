@@ -12,15 +12,15 @@ phantom_experiment:
   phantom_manufacturer: "caliber_mri" # options include [caliber_mri]
   phantom_type: "diffusion_phantom"      # options include [system_phantom, diffusion_phantom]
   phantom_serial_number: "128-0155"   # for CalibreMRI phantoms SN has format XXX-XXXX
-  field_strength_tesla: 1.5           # options include [1.5, 3.0]
-  temperature_celsius: 22.0          # will match to closest experimental reference data
+  field_strength_tesla: 3.0           # options include [1.5, 3.0]
+  temperature_celsius: 0.0          # will match to closest experimental reference data
 
 
 # ====================================================================================================================
 # DICOM sorting options
 # ====================================================================================================================
 dicom_sorting:
-  scan_protocol : "diff_philips_ingenia_ambitionX"   # options include [siemens_skyra_3p0T, philips_marlin_1p5T, philips_ingenia_ambitionX, diff_philips_ingenia_ambitionX]
+  scan_protocol : "diff_siemens_skyra"   # options include [siemens_skyra_3p0T, philips_marlin_1p5T, philips_ingenia_ambitionX, diff_philips_ingenia_ambitionX]
   scan_protocol_options: ["siemens_skyra_3p0T", "philips_marlin_1p5T", "philips_ingenia_1p5T", "diff_philips_ingenia_ambitionX"]
   save_sorted_images: False # future feature (not implemented)
 
@@ -29,7 +29,10 @@ dicom_sorting:
 # ROI detection options
 # ====================================================================================================================
 roi_detection:
-  template_name: "philips_ingenia_1p5T"   # options include [siemens_skyra_3p0T, philips_ingenia_1p5T]
+  template_name: "siemens_diffusion_no_ice"   # options include [siemens_skyra_3p0T, philips_ingenia_1p5T]
+  registration_method: "shape_diffusion_nist"
+  flip_cap_series_numbers: []
+  use_first_detection_only: False
   save_mask_images: False # future feature (not implemented)
 
 
@@ -47,7 +50,7 @@ curve_fitting:
   # -----------------------------------------------------------------------------------------------------------------
   # MODEL OPTIONS
   # -----------------------------------------------------------------------------------------------------------------
-  dw_options: #t1_vfa_options
+  dw_options:
     fitting_models: ["2_param"]             #
   # -----------------------------------------------------------------------------------------------------------------
   # OUTPUT OPTIONS

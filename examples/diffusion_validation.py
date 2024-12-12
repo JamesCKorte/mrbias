@@ -23,18 +23,28 @@ Change Log:
   23-June-2022  :               (James Korte) : GitHub Release   MR-BIAS v1.0
 """
 import os
+# Code to add the parent directory to allow importing mrbias core modules
+from pathlib import Path
+import sys
+file = Path(__file__).resolve()
+parent, root = file.parent, file.parents[1]
+if str(root) not in sys.path:
+    sys.path.insert(1, str(root))
+# import required mrbias modules
 from mrbias import MRBIAS
 
 
 # specify the configuration file to control the analysis
-configuration_filename = os.path.join("config", "example_config.yaml")
-# specific the dicom directories to analyse
-dicom_directory_a = "data\mrbias_testset_A"
-dicom_directory_b = "data\mrbias_testset_B"
+configuration_filename_a = os.path.join("..", os.path.join("config", "diffusion_validation_config.yaml"))
 
-# create a MRBIAS analysis object
-mrb = MRBIAS(configuration_filename, write_to_screen=True)
-# run the analysis (output will be created in the "output_directory" specified in the configuration file)
-mrb.analyse(dicom_directory_a)
-# run analysis on a second dicom directory (with the same analysis settings)
-mrb.analyse(dicom_directory_b)
+#  dicom directories to analyse
+dicom_dirs = []
+for i in range(1,13):
+    #dir = "data/month"+ str(i) + "_trace"
+    dir = "/Users/stanleynorris/Desktop/MRBIAS/mrbias/data/month" + str(i) + "_trace"
+    dicom_dirs.append(dir)
+
+# create MRBIAS analysis objects
+for dir in dicom_dirs:
+   mrb = MRBIAS(configuration_filename_a, write_to_screen=True)
+   mrb.analyse(dir)

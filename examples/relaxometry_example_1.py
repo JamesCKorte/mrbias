@@ -23,20 +23,26 @@ Change Log:
   23-June-2022  :               (James Korte) : GitHub Release   MR-BIAS v1.0
 """
 import os
+
+# Code to add the parent directory to allow importing mrbias core modules
+from pathlib import Path
+import sys
+file = Path(__file__).resolve()
+parent, root = file.parent, file.parents[1]
+if str(root) not in sys.path:
+    sys.path.insert(1, str(root))
+# import required mrbias modules
 from mrbias import MRBIAS
 
-
 # specify the configuration file to control the analysis
-configuration_filename_a = os.path.join("config", "example_system_config.yaml")
-configuration_filename_b = os.path.join("config", "example_diffusion_config.yaml")
-
+configuration_filename = os.path.join("..", os.path.join("config", "relaxometry_example_1_config.yaml"))
 # specific the dicom directories to analyse
-dicom_directory_a = r"add path to diffusion data"
-dicom_directory_b = r"add path to diffusion data"
+dicom_directory_a = "..\data\mrbias_testset_A"
+dicom_directory_b = "..\data\mrbias_testset_B"
 
-# create MRBIAS analysis objects
-mrb = MRBIAS(configuration_filename_a, write_to_screen=True)
+# create a MRBIAS analysis object
+mrb = MRBIAS(configuration_filename, write_to_screen=True)
+# run the analysis (output will be created in the "output_directory" specified in the configuration file)
 mrb.analyse(dicom_directory_a)
-
-mrb = MRBIAS(configuration_filename_b, write_to_screen=True)
+# run analysis on a second dicom directory (with the same analysis settings)
 mrb.analyse(dicom_directory_b)

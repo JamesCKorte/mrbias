@@ -19,25 +19,26 @@ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY
 --------------------------------------------------------------------------------
 Change Log:
 --------------------------------------------------------------------------------
-02-August-2021  :               (James Korte) : Initial code for MR-BIAS v0.0
-  23-June-2022  :               (James Korte) : GitHub Release   MR-BIAS v1.0
+  14-July-2023  :               (Stanley Norris) : Example added for collaborator
 """
 import os
+# Code to add the parent directory to allow importing mrbias core modules
+from pathlib import Path
+import sys
+file = Path(__file__).resolve()
+parent, root = file.parent, file.parents[1]
+if str(root) not in sys.path:
+    sys.path.insert(1, str(root))
+# import required mrbias modules
 from mrbias import MRBIAS
 
 
 # specify the configuration file to control the analysis
-configuration_filename_a = os.path.join("config", "validation_diffusion_config.yaml")
+configuration_filename = os.path.join("..", os.path.join("config", "relaxometry_glen_config.yaml"))
+# specific the dicom directories to analyse
+dicom_directory_a = r"Glenn you will need to change this path to a data directory on your computer"
 
-#  dicom directories to analyse
-dicom_dirs = []
-for i in range(1,13):
-    #dir = "data/month"+ str(i) + "_trace"
-    dir = "/Users/stanleynorris/Desktop/MRBIAS/mrbias/data/month" + str(i) + "_trace"
-    dicom_dirs.append(dir)
-
-# create MRBIAS analysis objects
-for dir in dicom_dirs:
-   mrb = MRBIAS(configuration_filename_a, write_to_screen=True)
-   mrb.analyse(dir)
-   assert False
+# create a MRBIAS analysis object
+mrb = MRBIAS(configuration_filename, write_to_screen=True)
+# run the analysis (output will be created in the "output_directory" specified in the configuration file)
+mrb.analyse(dicom_directory_a)

@@ -19,21 +19,28 @@ PROFITS; OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY
 --------------------------------------------------------------------------------
 Change Log:
 --------------------------------------------------------------------------------
-  14-July-2023  :               (James Korte) : Example added for collaborator
+  13-March-2024  :               (James Korte) : Example added for collaborator
 """
 import os
+# Code to add the parent directory to allow importing mrbias core modules
+from pathlib import Path
+import sys
+file = Path(__file__).resolve()
+parent, root = file.parent, file.parents[1]
+if str(root) not in sys.path:
+    sys.path.insert(1, str(root))
+# import required mrbias modules
 from mrbias import MRBIAS
 
-# specify the configuration file to control the analysis
-configuration_filename     = os.path.join("config", "example_auckland_cam_config.yaml")
-configuration_180_filename = os.path.join("config", "example_auckland_cam_180_config.yaml")
-# specific the dicom directories to analyse
-dicom_directory_a     = r"add a path to your dicom directory"
-dicom_directory_a_180 = r"add a path to your dicom directory for a dataset with 180 degree rotation (this may be the same directory if taken in the same scan session)"
 
-# create a MRBIAS analysis objects
-mrb     = MRBIAS(configuration_filename, write_to_screen=True)
-mrb_180 = MRBIAS(configuration_180_filename, write_to_screen=True)
+# specify the configuration file to control the analysis
+configuration_filename = os.path.join("..", os.path.join("config", "relaxometry_eurospin_AVL_nogeo_config.yaml"))
+# specific the dicom directories to analyse
+dicom_directory_a = r"I:\JK\MR-BIAS\Data_From_BenPetra\M231213A_VIRtest"
+dicom_directory_b = r"I:\JK\MR-BIAS\Data_From_BenPetra\M231213A_rectumvfa1"
+
+# create a MRBIAS analysis object
+mrb = MRBIAS(configuration_filename, write_to_screen=True)
 # run the analysis (output will be created in the "output_directory" specified in the configuration file)
 mrb.analyse(dicom_directory_a)
-mrb_180.analyse(dicom_directory_a_180)
+mrb.analyse(dicom_directory_b)

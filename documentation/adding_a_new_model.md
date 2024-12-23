@@ -1,26 +1,19 @@
-*Authors: Arpita Dutta &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Date Modified: 18/07/2023*
+*Authors: Arpita Dutta, James Korte &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Date Modified: 23/12/2024*
 
 # Tutorial: Adding a new signal model for curve fitting
 
-This tutorial will show you how to add a new signal model by using the example of a T2* model for the [system lite phantom or essential system phantom](https://qmri.com/product/essential-system/) (which is a simplified version of the [premium system phantom](https://qmri.com/product/ismrm-nist-premium-system-phantom/)). We made these modifications for our collaborators at the Auckland Bioengineering Institute, the University of Auckland. They wanted to try out MRBIAS on their system lite phantom images.
+This tutorial will show you how to add a new signal model by using the example of a T2* model for the [system lite phantom or essential system phantom](https://qmri.com/product/essential-system/) (which is a simplified version of the [premium system phantom](https://qmri.com/product/ismrm-nist-premium-system-phantom/)). These modifications were made with our collaborators at the Auckland Bioengineering Institute, the University of Auckland. They wanted to try out MRBIAS on a series of T2* images of their system lite phantom.
 
 
-## Where do the signal model function live?
-Each signal model function is stored in the “mrbias/curve_fitting.py” python script. Adding a new signal model involves three-step processes. 
-- Add ROI detection template for the new signal model
-- Include the curve fitting function
-- Update mrbias/mri_bias.py 
+## Where do the signal models live and how do I add a new one?
+Each signal model is a class defined in a seperate file in the folder “mrbias/curve_fit_models”, for example a two parameter T1 relaxation model for variable flip angle (VFA) data is defined in the file "mrbias/curve_fit_models/t1_vfa_2param.py". Adding a new signal model involves three-steps
+- Define a new curve fitting model 
+- Include the new model as an option in the main progam "mrbias/mri_bias.py"  
+- Add a region of interest (ROI) detection template if required by the new signal model
 
 
-### The ROI detection template
-
-For the new signal model, it should be able to detect ROIs in its corresponding MRI sequence. The templates for ROI detection are stored in the "mrbias/roi_detection_templates" folder, with each template residing in its designated phantom-scanner-specific subdirectory. The T2* model for system lite phantom, for example, uses "mrbias/roi_detection_templates/systemlite_siemens_vida_3p0T/default_T2_rois.yaml" template.
-
-To add a new ROI template, please refer to 'mrbias/documentation/adding_a_roi_template' documentation.
-
-
-### Include the curve fitting function
-You will need to open the "mrbias/curve_fitting.py" script and add a new class for the new signal model. Here is the class that was added to fit the T2* model with two parameters. Also, ensure that the 'get_initial_parameters' and 'fit_parameter_bounds' functions return only two parameters when adding a two-parameter model and three parameters when working with a three-parameter model.
+### Define a new curve fitting model
+You will need to create a new file in the "mrbias/curve_fit_models" folder, in this example we copied an existing file "mrbias/curve_fit_models/t1_vfa_2param.py" and renamed it for our new T2* model "t2star_ge_2param.py". In each signal model file you need to modify the class that inherits from the base class "CurveFitAbstract", we renamed the existing class "T2SECurveFitAbstract3Param" to our new class named "T2StarCurveFitAbstract2Param". The "CurveFitAbstract" class handles the curve fitting procedure and reliest on your new class to define your signal model, including a mathematical function and it's associated variables. Here is the class that we added to define a two parameter the T2* model, where the two free parameters are M0 and T2Star, and the echo time, TE, is as measured on the MRI scanner. Note that the function 'get_initial_parameters' returns two initial values, one for M0 and one for T2Star, and the function'fit_parameter_bounds' functions returns bounds (an lower bound and an upper bound) for both the parameters, M0 and T2Star.
 
 ```python
 class T2StarCurveFitAbstract2Param(CurveFitAbstract):
@@ -81,27 +74,55 @@ class T2StarCurveFitAbstract2Param(CurveFitAbstract):
         eqn_strs = ["S(TE) = M0 * exp(-TE/T2Star)"]
         return eqn_strs
 
-    def get_model_eqn_parameter_strs(self):
-        eqn_param_strs = []
-        for p_name, (descr, init_v, min_v, max_v) in self.eqn_param_map.items():
-            eqn_param_strs.append((p_name, descr, init_v, min_v, max_v))
-        return eqn_param_strs
-
 ```
 
-You can easily copy-paste an existing signal model class and then update the fit function and inputs according to the model you intend to add.
+To include your new model in the curve fitting module, you also need to add a line to the "mrbias/curve_fitting.py" such as the following
+```python
+from mrbias.curve_fit_models.t2star_ge_2param import T2StarCurveFitAbstract2Param
+```
 
 
 
-### Update mrbias/mri_bias.py 
+### Incliude the new model in mrbias/mri_bias.py 
 
-The "mrbias/mri_bias.py" script needs to be updated in order to read and analyse the original MR images.
-
-Firstly, to read the relevant original images, you need to introduce a new imageset to the 'analyse' function. For example, all original T2* images are loaded into 't2_star_imagesets' and some basic imaging details are logged.
-
+The main program ("mrbias/mri_bias.py") needs to be updated to include your new curve fitting class an an option when and analysing the MRI dataset. If we were adding another T1 variable flip angle (VFA) model, this would be a quick process, as the main program already includes code to load T1-VFA datasets and interpret T1-VFA options from the configuration file. In that simplified situation a few lines of code would be required to use your new model if it was selected in the configutation file, for example if a 4 parameter T1-VFA model had been added then the following would be added to the 'analyse' function of the MRBIAS class in the main program:
 ```python
 def analyse(self, dicom_directory):
-        .
+		.
+		.
+		.
+    for t1_vir_model_str in t1_vir_model_list:
+	mdl = None
+	if t1_vir_model_str == "2_param":
+	    mdl = curve_fit.T1VIRCurveFitAbstract2Param(imageset=t1_vir_imageset,
+							reference_phantom=ref_phan,
+							initialisation_phantom=init_phan,
+							preprocessing_options=preproc_dict,
+							inversion_exclusion_list=inversion_exclusion_list,
+							exclusion_label=exclusion_label)
+	elif t1_vir_model_str == "3_param":
+	    mdl = curve_fit.T1VIRCurveFitAbstract3Param(imageset=t1_vir_imageset,
+							reference_phantom=ref_phan,
+							initialisation_phantom=init_phan,
+							preprocessing_options=preproc_dict,
+							inversion_exclusion_list=inversion_exclusion_list,
+							exclusion_label=exclusion_label)
+	elif t1_vir_model_str == "4_param":                                                                   # <-- ADDED
+	    mdl = curve_fit.T1VIRCurveFitAbstract4Param(imageset=t1_vir_imageset,                             # <-- ADDED
+							reference_phantom=ref_phan,                           # <-- ADDED
+							initialisation_phantom=init_phan,                     # <-- ADDED
+							preprocessing_options=preproc_dict,                   # <-- ADDED
+							inversion_exclusion_list=inversion_exclusion_list,    # <-- ADDED
+							exclusion_label=exclusion_label)                      # <-- ADDED
+```
+But as this is the first T2* dataset to be analysed we needed to update a few sections of the main program to
+- Add code to load a T2* dataset
+- Add code to parse T2* model fitting options from the configuration file (.yaml)
+- Add code to load the T2* model you just created
+
+Firstly, to read in the relevant T2* images, a new imageset is added to the 'analyse' function. The following highlights changes to the function to load T2* images into 't2_star_imagesets' and log some basic imaging details.
+```python
+def analyse(self, dicom_directory):
 		.
 		.
 		.
@@ -111,13 +132,14 @@ def analyse(self, dicom_directory):
         t1_vir_imagesets = []
         t1_vfa_imagesets = []
         t2_mse_imagesets = []
+        t2_star_imagesets = []            # <--------------------------------------------------------------------------- ADDED
         if ss is not None:
             geometric_images = ss.get_geometric_images()
             #pd_images = ss.get_proton_density_images()
             t1_vir_imagesets = ss.get_t1_vir_image_sets()
             t1_vfa_imagesets = ss.get_t1_vfa_image_sets()
             t2_mse_imagesets = ss.get_t2_mse_image_sets()
-            t2_star_imagesets = ss.get_t2star_image_sets()
+            t2_star_imagesets = ss.get_t2star_image_sets() # <----------------------------------------------------------- ADDED
             ss.write_pdf_summary_page(c)
         # log some basic details of the imagesets
         for t1_vir_imageset in t1_vir_imagesets:
@@ -129,20 +151,18 @@ def analyse(self, dicom_directory):
         for t2_mse_imageset in t2_mse_imagesets:
             mu.log("Found T2(MSE): %s" % type(t2_mse_imageset), LogLevels.LOG_INFO)
             mu.log("\t\t%s" % str(t2_mse_imageset), LogLevels.LOG_INFO)
-        for t2_star_imageset in t2_star_imagesets:
-            mu.log("Found T2(Star): %s" % type(t2_star_imageset), LogLevels.LOG_INFO)
-            mu.log("\t\t%s" % str(t2_star_imageset), LogLevels.LOG_INFO)
+        for t2_star_imageset in t2_star_imagesets:  #       <----------------------------------------------------------- ADDED
+            mu.log("Found T2(Star): %s" % type(t2_star_imageset), LogLevels.LOG_INFO) # <------------------------------- ADDED
+            mu.log("\t\t%s" % str(t2_star_imageset), LogLevels.LOG_INFO) # <-------------------------------------------- ADDED
 ```
-
-To check for linked geometric images, you need to include the new imageset (i.e. t2_star_imagesets) to the following section of code.
-
+To linked any available geometric images, you need to include the new imageset (i.e. t2_star_imagesets) to the following section of code.
 ```python
 geometric_images_linked = set()
         if ss is not None:
             # exclude any geometric images that are not reference in curve fit data
             mu.log("MR-BIAS::analyse(): Identify linked geometric images ...", LogLevels.LOG_INFO)
             for geometric_image in geometric_images:
-                for fit_imagesets in [t1_vir_imagesets, t1_vfa_imagesets, t2_mse_imagesets,t2_star_imagesets]:
+                for fit_imagesets in [t1_vir_imagesets, t1_vfa_imagesets, t2_mse_imagesets, t2_star_imagesets]: <-- MODIFIED
                     for imageset in fit_imagesets:
                         g = imageset.get_geometry_image()
                         if g.get_label() == geometric_image.get_label():
@@ -153,29 +173,56 @@ geometric_images_linked = set()
                             mu.log("\tfound geometric image (%s) linked with with imageset.geoimage (%s)" %
                                    (repr(geometric_image), repr(imageset.get_geometry_image())),
                                    LogLevels.LOG_INFO)
-
-
 ```
 
-In the code below, you need to add the new curve fitting function so that it can call the appropriate curve fitting function by reading the configuration file.
-
+Secondly, add in configuration options for T2* model fitting with the following changes to the class 'MRIBiasCurveFitConfig'
 ```python
- # T2 Star
+class MRIBiasCurveFitConfig(MRIBIASConfiguration):
+	.
+	.
+	.
+    # T2 Star GE SETTINGS
+    def __get_t2_star_ge(self, param_name, default_value):
+        return self.__get_nestled("t2_star_ge_options", param_name, default_value)
+    def __get_t2_star_ge(self):
+        return self.__get_t2_star_ge("fitting_models", ["2_param"])
+    def get_t2_star_ge_exclusion_list(self):
+        return self.__get_t2_star_ge("echo_exclusion_list", None)
+    def get_t2_star_ge_exclusion_label(self):
+        return self.__get_t2_star_ge("echo_exclusion_label", "user_angle_excld")
+    def get_t2_star_ge_2D_slice_offset_list(self):
+        return self.__get_2D_slice_offset_list("t2_star_ge_options")
+```
+
+Lastly, using the configuration options you added, if a user selects a T2 star model fit, the following code is added to load up your new T2 star model with the user specified configuration options
+```python
+def analyse(self, dicom_directory):
+		.
+		.
+		.
+	t1vir_map_df = None
+	t1vfa_map_df = None
+	t2mse_map_df = None
+	t2star_map_df = None    # <------------------------------- ADDED
+	dw_map_df = None
+	t1vir_map_d_arr = []
+	t1vfa_map_d_arr = []
+	t2mse_map_d_arr = []
+	t2star_map_d_arr = []
+	dw_map_d_arr = []       # <------------------------------- ADDED
+		.
+		.
+		.
+	# ----------------------------------------------------             #  <--- ADDED (the whole next chunk)
+        # T2Star Gradient Echo
         for t2_star_imageset in t2_star_imagesets:
             t2_star_imageset.update_ROI_mask()  # trigger a mask update
             # get model options from configuration file
-            t2_star_model_list = cf_config.get_t2_star_models()
-            echo_exclusion_list = cf_config.get_t2_star_exclusion_list()
-            exclusion_label = cf_config.get_t2_star_exclusion_label()
+            t2_star_model_list = self.cf_config.get_t2_star_ge_models()
+            echo_exclusion_list = self.cf_config.get_t2_star_ge_exclusion_list()
+            exclusion_label = self.cf_config.get_t2_star_ge_exclusion_label()
             for t2_star_model_str in t2_star_model_list:
                 mdl = None
-                if t2_star_model_str == "3_param":
-                    mdl = curve_fit.T2StarCurveFitAbstract3Param(imageset=t2_star_imageset,
-                                                                 reference_phantom=ref_phan,
-                                                                 initialisation_phantom=init_phan,
-                                                                 preprocessing_options=preproc_dict,
-                                                                 echo_exclusion_list=echo_exclusion_list,
-                                                                 exclusion_label=exclusion_label)
                 if t2_star_model_str == "2_param":
                     mdl = curve_fit.T2StarCurveFitAbstract2Param(imageset=t2_star_imageset,
                                                                  reference_phantom=ref_phan,
@@ -183,67 +230,62 @@ In the code below, you need to add the new curve fitting function so that it can
                                                                  preprocessing_options=preproc_dict,
                                                                  echo_exclusion_list=echo_exclusion_list,
                                                                  exclusion_label=exclusion_label)
-                    
                 if mdl is not None:
                     # add summary page to pdf
-                    mdl.write_pdf_summary_pages(c)
+                    mdl.write_pdf_summary_pages(c, is_system=True,
+                                                include_pmap_pages=include_roi_pmap_pages)
                     # write the data output
                     d_dir = os.path.join(out_dir, mdl.get_imset_model_preproc_name())
                     if not os.path.isdir(d_dir):
                         os.mkdir(d_dir)
                     mdl.write_data(data_dir=d_dir,
                                    write_voxel_data=cf_write_vox_data)
-							
+                    # add data to the map to link dicom images to analysis folders
+                    for series_uid, series_num, TE, TR in zip(t2_star_imageset.series_instance_UIDs,
+                                                              t2_star_imageset.series_numbers,
+                                                              t2_star_imageset.meas_var_list,
+                                                              t2_star_imageset.repetition_time_list):
+                        exclude_TE = TE in echo_exclusion_list
+                        t2star_map_d_arr.append([t2_star_imageset.label, t2_star_model_str, series_num, TE, TR,
+                                                 cf_normal, cf_averaging, cf_exclude, cf_percent_clipped_threshold,
+                                                 exclude_TE, exclusion_label,
+                                                 series_uid, d_dir])
+
+        if len(t2star_map_d_arr):
+            t2star_map_col_names = ["Label", "Model", "SeriesNumber",
+                                    "%s (%s)" % (
+                                        t2_star_imagesets[0].meas_var_name, t2_star_imagesets[0].meas_var_units),
+                                    "RepetitionTime",
+                                    "Normalise", "Average", "ExcludeClipped", "ClipPcntThreshold",
+                                    "Excluded", "ExclusionLabel",
+                                    "SeriesInstanceUID", "AnalysisDir"]
+            t2star_map_df = pd.DataFrame(t2star_map_d_arr, columns=t2star_map_col_names)
+		.
+		.
+		.
+	# join the data mapping frames and save to disk
+        map_vec = []
+        for m in [t1vir_map_df, t1vfa_map_df, t2mse_map_df, t2star_map_df, dw_map_df]:   # <------------------------------- MODIFED
+            if m is not None:
+                map_vec.append(m)
+        if len(map_vec):
+            df_data_analysis_map = pd.concat([t1vir_map_df, t1vfa_map_df, t2mse_map_df, t2star_map_df, dw_map_df], # <----- MODIFED
+                                             axis=0, join='outer')
+            df_data_analysis_map.to_csv(data_map_filename)							
 ```
 
-Lastly, you need to create functions for the new model (i.e. T2*) under 'class MRIBiasCurveFitConfig'.
 
-```python
-   def get_t2_star_models(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "t2_star_options" in cf_config.keys():
-                t2_star_opts = cf_config["t2_star_options"]
-                if "fitting_models" in t2_star_opts.keys():
-                    return t2_star_opts["fitting_models"]
-        # not found, return a default value
-        default_value = ["3_param"]
-        mu.log("MR-BIASCurveFitConfig::t2_star_options(): not found in configuration file, "
-               "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
-        return default_value
+### Add a ROI detection template (if required)
+
+When adding a new signal model type, you may also need to be able to detect different ROIs in the phantom. The templates for ROI detection are stored in the "mrbias/roi_detection_templates" folder, with each template residing in its designated phantom-scanner-specific subdirectory. The T2* model for system lite phantom, for example, uses "mrbias/roi_detection_templates/systemlite_siemens_vida_3p0T/default_T2_rois.yaml" template.
+
+To add a new ROI template, please refer to 'mrbias/documentation/adding_a_roi_template' documentation.
 
 
-    def get_t2_star_exclusion_list(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "t2_star_options" in cf_config.keys():
-                t2_star_opts = cf_config["t2_star_options"]
-                if "echo_exclusion_list" in t2_star_opts.keys():
-                    return t2_star_opts["echo_exclusion_list"]
-        # not found, return a default value
-        default_value = None
-        mu.log("MR-BIASCurveFitConfig::get_t2_star_exclusion_list(): not found in configuration file, "
-               "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
-        return default_value
-
-    def get_t2_star_exclusion_label(self):
-        cf_config = super().get_curve_fitting_config()
-        if cf_config is not None:
-            if "t2_star_options" in cf_config.keys():
-                t2_star_opts = cf_config["t2_star_options"]
-                if "echo_exclusion_label" in t2_star_opts.keys():
-                    return t2_star_opts["echo_exclusion_label"]
-        # not found, return a default value
-        default_value = "user_angle_excld"
-        mu.log("MR-BIASCurveFitConfig::get_t2_star_exclusion_label(): not found in configuration file, "
-               "using default value : %s" % str(default_value), LogLevels.LOG_WARNING)
-        return default_value
-
-```python
 
 
-### Testing your new Signal model 
-Once you are happy with all the settings, it is a good time to see if the signal model works.  Now, you can initiate the model by calling MRBIAS. A sample code is provided in 'mrbias/mr_bias_auckland_cam_example.py'. In this code, ensure that the 'dicom_directory_a' correctly points to your input MRI DICOMs, and the 'configuration_filename' points to the appropriate configuration for run. Before executing the code, please make sure that the configuration is suitably updated in accordance with your requirements.
+## Testing your new Signal model 
+Once you are happy with all the settings, it is a good time to see if the signal model works. You can analyse your dataset with the new model by calling MRBIAS, an example is provided in 'mrbias/examples/relaxometry_auckland_cam.py'. In this code, ensure that the 'dicom_directory_a' correctly points to a directory of DICOM images which you want to analys, and the 'configuration_filename' points to an appropriate configuration. We have included an example configuration file in 'mrbias/config/relaxometry_auckland_cam_config.yaml', some details on how you can update the configuration file are discussed below. 
 
 ### Update the Config file
 
@@ -251,7 +293,7 @@ The 'mrbias/config' folder contains sample configuration files. Check that all o
 
 #### Update the output directory
 ```python
- ====================================================================================================================
+# ====================================================================================================================
 # Global settings
 # ====================================================================================================================
 global:

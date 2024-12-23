@@ -69,6 +69,7 @@ from mrbias.curve_fit_models.t1_vir_3param import T1VIRCurveFitAbstract3Param
 from mrbias.curve_fit_models.t1_vir_4param import T1VIRCurveFitAbstract4Param
 from mrbias.curve_fit_models.t1_vfa_2param import T1VFACurveFitAbstract2Param
 from mrbias.curve_fit_models.t2_se_3param import T2SECurveFitAbstract3Param
+from mrbias.curve_fit_models.t2star_ge_2param import T2StarCurveFitAbstract2Param
 from mrbias.curve_fit_models.dw_2param import DWCurveFitAbstract2Param
 
 

@@ -170,6 +170,7 @@ class MRBIAS(object):
         t1_vir_imagesets = []
         t1_vfa_imagesets = []
         t2_mse_imagesets = []
+        t2_star_imagesets = []
         dw_imagesets = []
         if ss is not None:
             geometric_images = ss.get_geometric_images()
@@ -177,6 +178,7 @@ class MRBIAS(object):
             t1_vir_imagesets = ss.get_t1_vir_image_sets()
             t1_vfa_imagesets = ss.get_t1_vfa_image_sets()
             t2_mse_imagesets = ss.get_t2_mse_image_sets()
+            t2_star_imagesets = ss.get_t2star_image_sets()
             dw_imagesets = ss.get_dw_image_sets()
             ss.write_pdf_summary_page(c)
         # log some basic details of the imagesets
@@ -189,6 +191,9 @@ class MRBIAS(object):
         for t2_mse_imageset in t2_mse_imagesets:
             mu.log("Found T2(MSE): %s" % type(t2_mse_imageset), LogLevels.LOG_INFO)
             mu.log("\t\t%s" % str(t2_mse_imageset), LogLevels.LOG_INFO)
+        for t2_star_imageset in t2_star_imagesets:
+            mu.log("Found T2(Star): %s" % type(t2_star_imageset), LogLevels.LOG_INFO)
+            mu.log("\t\t%s" % str(t2_star_imageset), LogLevels.LOG_INFO)
         for dw_imageset in dw_imagesets:
             mu.log("Found DW: %s" % type(dw_imageset), LogLevels.LOG_INFO)
             mu.log("\t\t%s" % str(dw_imageset), LogLevels.LOG_INFO)
@@ -198,7 +203,7 @@ class MRBIAS(object):
             # exclude any geometric images that are not reference in curve fit data
             mu.log("MR-BIAS::analyse(): Identify linked geometric images ...", LogLevels.LOG_INFO)
             for geometric_image in geometric_images:
-                for fit_imagesets in [t1_vir_imagesets, t1_vfa_imagesets, t2_mse_imagesets, dw_imagesets]:
+                for fit_imagesets in [t1_vir_imagesets, t1_vfa_imagesets, t2_mse_imagesets, t2_star_imagesets, dw_imagesets]:
                     for imageset in fit_imagesets:
                         g = imageset.get_geometry_image()
                         if g.get_label() == geometric_image.get_label():
@@ -454,10 +459,12 @@ class MRBIAS(object):
         t1vir_map_df = None
         t1vfa_map_df = None
         t2mse_map_df = None
+        t2star_map_df = None
         dw_map_df = None
         t1vir_map_d_arr = []
         t1vfa_map_d_arr = []
         t2mse_map_d_arr = []
+        t2star_map_d_arr = []
         dw_map_d_arr = []
         # ----------------------------------------------------
         # T1 Variable Inversion Recovery
@@ -616,6 +623,53 @@ class MRBIAS(object):
                                    "SeriesInstanceUID", "AnalysisDir"]
             t2mse_map_df = pd.DataFrame(t2mse_map_d_arr, columns=t2mse_map_col_names)
         # ----------------------------------------------------
+        # T2Star Gradient Echo
+        for t2_star_imageset in t2_star_imagesets:
+            t2_star_imageset.update_ROI_mask()  # trigger a mask update
+            # get model options from configuration file
+            t2_star_model_list = self.cf_config.get_t2_star_ge_models()
+            echo_exclusion_list = self.cf_config.get_t2_star_ge_exclusion_list()
+            exclusion_label = self.cf_config.get_t2_star_ge_exclusion_label()
+            for t2_star_model_str in t2_star_model_list:
+                mdl = None
+                if t2_star_model_str == "2_param":
+                    mdl = curve_fit.T2StarCurveFitAbstract2Param(imageset=t2_star_imageset,
+                                                                 reference_phantom=ref_phan,
+                                                                 initialisation_phantom=init_phan,
+                                                                 preprocessing_options=preproc_dict,
+                                                                 echo_exclusion_list=echo_exclusion_list,
+                                                                 exclusion_label=exclusion_label)
+                if mdl is not None:
+                    # add summary page to pdf
+                    mdl.write_pdf_summary_pages(c, is_system=True,
+                                                include_pmap_pages=include_roi_pmap_pages)
+                    # write the data output
+                    d_dir = os.path.join(out_dir, mdl.get_imset_model_preproc_name())
+                    if not os.path.isdir(d_dir):
+                        os.mkdir(d_dir)
+                    mdl.write_data(data_dir=d_dir,
+                                   write_voxel_data=cf_write_vox_data)
+                    # add data to the map to link dicom images to analysis folders
+                    for series_uid, series_num, TE, TR in zip(t2_star_imageset.series_instance_UIDs,
+                                                              t2_star_imageset.series_numbers,
+                                                              t2_star_imageset.meas_var_list,
+                                                              t2_star_imageset.repetition_time_list):
+                        exclude_TE = TE in echo_exclusion_list
+                        t2star_map_d_arr.append([t2_star_imageset.label, t2_star_model_str, series_num, TE, TR,
+                                                 cf_normal, cf_averaging, cf_exclude, cf_percent_clipped_threshold,
+                                                 exclude_TE, exclusion_label,
+                                                 series_uid, d_dir])
+
+        if len(t2star_map_d_arr):
+            t2star_map_col_names = ["Label", "Model", "SeriesNumber",
+                                    "%s (%s)" % (
+                                        t2_star_imagesets[0].meas_var_name, t2_star_imagesets[0].meas_var_units),
+                                    "RepetitionTime",
+                                    "Normalise", "Average", "ExcludeClipped", "ClipPcntThreshold",
+                                    "Excluded", "ExclusionLabel",
+                                    "SeriesInstanceUID", "AnalysisDir"]
+            t2star_map_df = pd.DataFrame(t2star_map_d_arr, columns=t2star_map_col_names)
+        # ----------------------------------------------------
         # DWI
         dw_2param_mdl_list = []
         for dw_imageset in dw_imagesets:
@@ -658,7 +712,7 @@ class MRBIAS(object):
                                                                 dw_imageset.series_numbers,
                                                                 dw_imageset.meas_var_list,
                                                                 dw_imageset.repetition_time_list):
-                        exclude_b = (bval_exclusion_list is not None) and (bval in bval_exclusion_list)
+                        exclude_b = bval in bval_exclusion_list
                         dw_map_d_arr.append([dw_imageset.label, dw_model_str, series_num, bval, TR,
                                              cf_normal, cf_averaging, cf_exclude, cf_percent_clipped_threshold,
                                              exclude_b, exclusion_label, use_2D_roi, centre_offset_2D_list,
@@ -674,11 +728,11 @@ class MRBIAS(object):
 
         # join the data mapping frames and save to disk
         map_vec = []
-        for m in [t1vir_map_df, t1vfa_map_df, t2mse_map_df, dw_map_df]:
+        for m in [t1vir_map_df, t1vfa_map_df, t2mse_map_df, t2star_map_df, dw_map_df]:
             if m is not None:
                 map_vec.append(m)
         if len(map_vec):
-            df_data_analysis_map = pd.concat([t1vir_map_df, t1vfa_map_df, t2mse_map_df, dw_map_df],
+            df_data_analysis_map = pd.concat([t1vir_map_df, t1vfa_map_df, t2mse_map_df, t2star_map_df, dw_map_df],
                                              axis=0, join='outer')
             df_data_analysis_map.to_csv(data_map_filename)
 
@@ -1062,7 +1116,7 @@ class MRIBiasCurveFitConfig(MRIBIASConfiguration):
     def get_t1_vir_models(self):
         return self.__get_t1_vir("fitting_models", ["3_param"])
     def get_t1_vir_exclusion_list(self):
-        return self.__get_t1_vir("inversion_exclusion_list", None)
+        return self.__get_t1_vir("inversion_exclusion_list", [])
     def get_t1_vir_exclusion_label(self):
         return self.__get_t1_vir("inversion_exclusion_label", "user_IR_excld")
     def get_t1_vir_2D_slice_offset_list(self):
@@ -1074,7 +1128,7 @@ class MRIBiasCurveFitConfig(MRIBIASConfiguration):
     def get_t1_vfa_models(self):
         return self.__get_t1_vfa("fitting_models", ["2_param"])
     def get_t1_vfa_exclusion_list(self):
-        return self.__get_t1_vfa("angle_exclusion_list", None)
+        return self.__get_t1_vfa("angle_exclusion_list", [])
     def get_t1_vfa_exclusion_label(self):
         return self.__get_t1_vfa("angle_exclusion_label", "user_angle_excld")
     def get_t1_vfa_2D_roi_setting(self):
@@ -1088,11 +1142,23 @@ class MRIBiasCurveFitConfig(MRIBIASConfiguration):
     def get_t2_mse_models(self):
         return self.__get_t2_mse("fitting_models", ["3_param"])
     def get_t2_mse_exclusion_list(self):
-        return self.__get_t2_mse("echo_exclusion_list", None)
+        return self.__get_t2_mse("echo_exclusion_list", [])
     def get_t2_mse_exclusion_label(self):
         return self.__get_t2_mse("echo_exclusion_label", "user_angle_excld")
     def get_t2_mse_2D_slice_offset_list(self):
         return self.__get_2D_slice_offset_list("t2_mse_options")
+
+    # T2 Star GE SETTINGS
+    def __get_t2_star_ge(self, param_name, default_value):
+        return self.__get_nestled("t2_star_ge_options", param_name, default_value)
+    def get_t2_star_ge_models(self):
+        return self.__get_t2_star_ge("fitting_models", ["2_param"])
+    def get_t2_star_ge_exclusion_list(self):
+        return self.__get_t2_star_ge("echo_exclusion_list", [])
+    def get_t2_star_ge_exclusion_label(self):
+        return self.__get_t2_star_ge("echo_exclusion_label", "user_angle_excld")
+    def get_t2_star_ge_2D_slice_offset_list(self):
+        return self.__get_2D_slice_offset_list("t2_star_ge_options")
 
     # DW SETTINGS
     def __get_dw(self, param_name, default_value):
@@ -1100,12 +1166,11 @@ class MRIBiasCurveFitConfig(MRIBIASConfiguration):
     def get_dw_models(self):
         return self.__get_dw("fitting_models", ["2_param"])
     def get_dw_exclusion_list(self):
-        return self.__get_dw("bval_exclusion_list", None)
+        return self.__get_dw("bval_exclusion_list", [])
     def get_dw_exclusion_label(self):
         return self.__get_dw("bval_exclusion_label", "user_bval_excld")
     def get_dw_2D_roi_setting(self):
         return self.__get_dw("use_2D_roi", False)
-        cf_config = super().get_curve_fitting_config()
     def get_dw_2D_slice_offset_list(self):
         return self.__get_2D_slice_offset_list("dw_options")
 

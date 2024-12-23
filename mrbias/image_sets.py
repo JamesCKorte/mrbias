@@ -1032,8 +1032,10 @@ class ImageSetT2Star(ImageSetAbstract):
                  geometry_image,
                  series_instance_UIDs=None, series_numbers=None,
                  bits_allocated=None, bits_stored=None,
-                 rescale_slope=None,
-                 rescale_intercept=None,
+                 rescale_slope_list=None,
+                 rescale_intercept_list=None,
+                 scale_slope_list=None,
+                 scale_intercept_list=None,
                  scanner_make=None, scanner_model=None, scanner_serial_number=None, scanner_field_strength=None,
                  study_date=None, study_time=None,
                  image_filepaths_list=None):
@@ -1046,7 +1048,8 @@ class ImageSetT2Star(ImageSetAbstract):
                          geometry_image=geometry_image,
                          series_instance_UIDs=series_instance_UIDs, series_numbers=series_numbers,
                          bits_allocated=bits_allocated, bits_stored=bits_stored,
-                         rescale_slope=rescale_slope, rescale_intercept=rescale_intercept,
+                         rescale_slope_list=rescale_slope_list, rescale_intercept_list=rescale_intercept_list,
+                         scale_slope_list=scale_slope_list, scale_intercept_list=scale_intercept_list,
                          scanner_make=scanner_make, scanner_model=scanner_model, scanner_serial_number=scanner_serial_number,
                          scanner_field_strength=scanner_field_strength, date_acquired=study_date, time_acquired=study_time,
                          image_filepaths_list=image_filepaths_list)

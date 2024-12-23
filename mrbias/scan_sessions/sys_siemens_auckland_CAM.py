@@ -22,6 +22,7 @@ Change Log:
   21-June-2021  : (Zachary Chin, James Korte) : Initial code from masters project
 02-August-2021  :               (James Korte) : Updated for MR-BIAS code v0.0
   23-June-2022  :               (James Korte) : GitHub Release   MR-BIAS v1.0
+   25-Jan-2023  :              (Arpita Dutta) : T2 Star scan session added
    06-Dec-2024  :               (James Korte) : Refactoring  MR-BIAS v1.0
 """
 

@@ -52,6 +52,8 @@ curve_fitting:
   t1_vfa_options:
     fitting_models: ["2_param"]
     use_2D_roi: False                     #  to use a 3D ROI or a central 2D slice ROI
+  t2_star_ge_options:
+    fitting_models: [ "2_param" ]
 
   # -----------------------------------------------------------------------------------------------------------------
   # OUTPUT OPTIONS

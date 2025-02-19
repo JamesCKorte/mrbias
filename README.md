@@ -39,11 +39,11 @@ python -m pip install -r requirements.txt
 We have tested the software with Python v3.7 and recommend installing into a virtual environment.
 
 # Usage
-A basic example and test data are included, to verify MR-BIAS is running on your system, please run the example script with
+A basic example and test data are included, to verify MR-BIAS is running on your system, please run the test script from the "examples" folder with the command
 ```
-python mr_bias_example_1.py
+python relaxometry_example_1.py
 ```
-The example program analyses two ISMRM/NIST system phantom image datasets and will generate two reports which can be found in the "mrbias\output" folder. 
+The example program analyses two ISMRM/NIST system phantom image datasets and will generate two reports which can be found in the "mrbias\examples\output" folder. 
 
 ## Modifying the software to your needs
 We are working on a number of tutorials to help users modify the software and contribute to this project. So far these include

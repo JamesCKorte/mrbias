@@ -36,8 +36,8 @@ import numpy as np
 import matplotlib.pyplot as plt
 import pandas as pd
 import scipy.optimize as spopt
+import scipy.stats as spstat
 import lmfit
-from scipy.stats import linregress
 import seaborn as sns
 
 # for pdf output
@@ -1014,13 +1014,15 @@ class CurveFitAbstract(ABC):
                                 for p_name in ord_param_names:
                                     voxel_fit_param_array_dict[p_name].append(np.nan)
                                     voxel_fit_param_err_array_dict[p_name].append(np.nan)
+                        #
+                        # LINEAR REGRESSION
                         elif self.opti_lib == OptiOptions.LINREG:
-                            voxel_series = np.log(voxel_series/voxel_series[0])
-                            popt_res = linregress(measurement_series, voxel_series)
-                            popt = np.array(- popt_res.slope)
-                            perr = popt_res.stderr
-                            voxel_fit_param_array_dict[ord_param_names[0]].append(popt)
-                            voxel_fit_param_err_array_dict[ord_param_names[0]].append(perr)
+                            voxel_series = self.linearise_voxel_series(measurement_series, voxel_series)
+                            popt_res = spstat.linregress(measurement_series, voxel_series)
+                            self.nonlinearise_fitted_params(popt_res.slope, popt_res.intercept,
+                                                            popt_res.stderr, popt_res.intercept_stderr,
+                                                            voxel_fit_param_array_dict,
+                                                            voxel_fit_param_err_array_dict)
                         else:
                             mu.log("CurveFit(%s)::model_fit_roi_data(): please select a valid optimisation library choice" %
                                    self.get_model_name(), LogLevels.LOG_WARNING)
@@ -1509,7 +1511,8 @@ class CurveFitAbstract(ABC):
                 else:# centre_offset_2D< 0:
                     preproc_str = "%s-%d" % (preproc_str, np.abs(centre_offset_2D))
         # user exclusion tag
-        if (self.exclusion_list is not None) and (self.exclusion_label is not None):
+        if (isinstance(self.exclusion_list, list) and (len(self.exclusion_list) > 0)) \
+                and (self.exclusion_label is not None):
             if preproc_str == "":
                 preproc_str = self.exclusion_label
             else:
@@ -1561,6 +1564,16 @@ class CurveFitAbstract(ABC):
     @abstractmethod
     def get_model_eqn_strs(self):
         return None
+
+    def linearise_voxel_series(self, measurement_series, voxel_series):
+        mu.log("\t\tCurveFitAbsract::linearise_voxel_series(): not implemented for this model (%d) returning an unmodified voxel series" %
+               self.get_model_name(), LogLevels.LOG_WARNING)
+        return voxel_series
+
+    def nonlinearise_fitted_params(self, slope, intercept, slope_err, intercept_err,
+                                   voxel_fit_param_array_dict, voxel_fit_param_err_array_dict):
+        mu.log("\t\tCurveFitAbsract::nonlinearise_fitted_params(): not implemented for this model (%d)" %
+               self.get_model_name(), LogLevels.LOG_WARNING)
 
 
 if __name__ == '__main__':

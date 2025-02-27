@@ -47,9 +47,9 @@ class DWCurveFitAbstract2Param(CurveFitAbstract):
                  use_2D_roi=False, centre_offset_2D_list=[0],
                  bval_exclusion_list=None, exclusion_label=None):
         self.eqn_param_map = OrderedDict()
-        # self.eqn_param_map["Sb_0"] = ("Signal at b_0", "max(Sb_x)", "0.0", "inf")
-        self.eqn_param_map["D"] = ("D", "D", "0.0", "inf")
-        self.eqn_param_map["Bx"] = ("b value", "as measured", "-", "-")
+        self.eqn_param_map["ADC"] = ("ADC", "ADC", "0.0", "inf")
+        self.eqn_param_map["Sb_0"] = ("Signal at b_0", "max(S(b))", "0.0", "inf")
+        self.eqn_param_map["b"] = ("b value", "as measured", "-", "-")
         super().__init__(imageset, reference_phantom, initialisation_phantom, preprocessing_options,
                          use_2D_roi=use_2D_roi, centre_offset_2D_list=centre_offset_2D_list,
                          exclusion_list=bval_exclusion_list, exclusion_label=exclusion_label,
@@ -62,20 +62,19 @@ class DWCurveFitAbstract2Param(CurveFitAbstract):
         return 'b-value (s/µm²)'
 
     def get_symbol_of_interest(self):
-        return 'D'
+        return 'ADC'
 
     def get_ordered_parameter_symbols(self):
-        # return ['Sb_0', 'D']
-        return ['D']
+        return ['Sb_0', 'ADC']
 
     def get_meas_parameter_symbol(self):
-        return 'Bx'
+        return 'b'
 
-    def fit_function(self, Bx, D):
-        # Sb_0 = flip value of pixel in DWI image with b=0
-        # Bx = B-value
-        # D = App. diffusion coeff.
-        return np.exp(-Bx * D)
+    def fit_function(self, b, ADC, Sb_0):
+        # Sb_0 = signal in DWI image with b-value=0
+        # b    = b-value
+        # ADC  = Apparent diffusion coefficient
+        return Sb_0 * np.exp(-b * ADC)
 
     def get_initial_parameters(self, roi_dx, voxel_dx):
         cf_roi = self.cf_rois[roi_dx]
@@ -97,6 +96,23 @@ class DWCurveFitAbstract2Param(CurveFitAbstract):
                    "default values of 1000.0", LogLevels.LOG_WARNING)
             return 1000.0
 
+    # TODO: add a flag to handle if a linear fit or a optimisation based curve fit is used
     def get_model_eqn_strs(self):
-        eqn_strs = ["log( S(Bx) / S(0) ) = -Bx * D"]
+        eqn_strs = ["log(S(b)) = -b * ADC + log(Sb_0)"] # display the linearised equation as this is the commonly used one
         return eqn_strs
+
+    def linearise_voxel_series(self, measurement_series, voxel_series):
+        # check for a b=0 measurement
+        if measurement_series[0] == 0:
+            return np.log(voxel_series/voxel_series[0])
+        else:
+            return np.log(voxel_series)
+
+    def nonlinearise_fitted_params(self, slope, intercept, slope_err, intercept_err,
+                                   voxel_fit_param_array_dict, voxel_fit_param_err_array_dict):
+        # S_b0
+        voxel_fit_param_array_dict['Sb_0'].append(np.array(np.exp(intercept)))
+        voxel_fit_param_err_array_dict['Sb_0'].append(np.exp(intercept_err))
+        # ADC
+        voxel_fit_param_array_dict['ADC'].append(-slope)
+        voxel_fit_param_err_array_dict['ADC'].append(slope_err)

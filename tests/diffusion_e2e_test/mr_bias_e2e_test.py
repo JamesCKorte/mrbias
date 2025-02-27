@@ -111,14 +111,16 @@ for dw_dx, (dset_gt, dset_now, ax) in enumerate(zip(gt_modelfit_datafile_list,
     # add a analysis tag to both frames
     df_gt.loc[:, "Analysis"]  = "GroundTruth"
     df_now.loc[:, "Analysis"] = "Current"
+    # in the GT dataframe relabel the old symbol "D" to the new symbol "ADC"
+    df_gt.rename(columns={"D (mean)": "ADC (mean)"}, inplace=True)
     # concatenate and visualise
     if VISUALISE_RESULTS:
         df = pd.concat([df_gt, df_now])
-        sns.stripplot(x="RoiLabel", y="D (mean)", hue="Analysis", data=df,
+        sns.stripplot(x="RoiLabel", y="ADC (mean)", hue="Analysis", data=df,
                         jitter=True, ax=ax)
         plt.pause(0.01)
     # compare results
-    DW_diff_per_roi = df_now["D (mean)"] - df_gt["D (mean)"]
+    DW_diff_per_roi = df_now["ADC (mean)"] - df_gt["ADC (mean)"]
     DW_PASSED = np.max(np.abs(DW_diff_per_roi)) < MAX_ADC_ERROR_UM2pS
 
     # print the test results

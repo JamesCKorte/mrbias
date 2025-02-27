@@ -38,23 +38,23 @@ from mrbias import MRBIAS
 DATA_BASE_DIR = r"I:\JK\MR-BIAS\EMBRACE\EMBRACE_DATA2_ALL"
 
 DATA_CONFIG_DICT = {"InstituteA": (os.path.join(DATA_BASE_DIR, "InstA_phantomQA"), # Philips 1.5T Ingenia
-                                   ("config/embrace/diffusion_philips_config.yaml", None),
+                                   ("../config/embrace/diffusion_philips_config.yaml", None),
                                    None,
                                    1.5),
                     "InstituteB": (os.path.join(DATA_BASE_DIR, "InstB_phantomQA"), # Philips 1.5T Ingenia
-                                   ("config/embrace/diffusion_philips_config.yaml", None),
+                                   ("../config/embrace/diffusion_philips_config.yaml", None),
                                    None,
                                    1.5),
                     "InstituteC": (os.path.join(DATA_BASE_DIR, "InstC_phantomQA"), # Philips 1.5T Ingenia
-                                   ("config/embrace/diffusion_philips_config.yaml", None),
+                                   ("../config/embrace/diffusion_philips_config.yaml", None),
                                    None,
                                    1.5),
                     "InstituteD": (os.path.join(DATA_BASE_DIR, "InstD_phantomQA"), # Siemens 1.5T Aera
-                                   ("config/embrace/diffusion_siemens_config.yaml", None),
+                                   ("../config/embrace/diffusion_siemens_config.yaml", None),
                                    None,
                                    1.5),
                     "InstituteE": (os.path.join(DATA_BASE_DIR, "InstE_phantomQA"), # GE 1.5T Optima
-                                   ("config/embrace/diffusion_GE_config.yaml", [11]),
+                                   ("../config/embrace/diffusion_GE_config.yaml", [11]),
                                    None,
                                    1.5),
                     # "InstituteF": (os.path.join(DATA_BASE_DIR, "InstF_phantomQA"),  # Philips 3.0T Ingenia (Enhanced/MultiFrame DICOM)
@@ -62,35 +62,35 @@ DATA_CONFIG_DICT = {"InstituteA": (os.path.join(DATA_BASE_DIR, "InstA_phantomQA"
                     #                None,
                     #                3.0),
                     "InstituteG": (os.path.join(DATA_BASE_DIR, "InstG_phantomQA"),  # Philips 3.0T Ingenia
-                                   ("config/embrace/diffusion_philips_config.yaml", None),
+                                   ("../config/embrace/diffusion_philips_config.yaml", None),
                                    None,
                                    3.0),
                     "InstituteH": (os.path.join(DATA_BASE_DIR, "InstH_phantomQA"),  # Philips 3.0T Ingenia
-                                   ("config/embrace/diffusion_philips_config.yaml", None),
+                                   ("../config/embrace/diffusion_philips_config.yaml", None),
                                    None,
                                    3.0),
                     "InstituteI": (os.path.join(DATA_BASE_DIR, "InstI_phantomQA"),  # Philips 3.0T Ingenia
-                                   ("config/embrace/diffusion_philips_config.yaml", None),
+                                   ("../config/embrace/diffusion_philips_config.yaml", None),
                                    None,
                                    3.0),
                     "InstituteJ": (os.path.join(DATA_BASE_DIR, "InstJ_phantomQA"), # Siemens 3.0T Skyra
-                                   ("config/embrace/diffusion_siemens_config.yaml", None),
+                                   ("../config/embrace/diffusion_siemens_config.yaml", None),
                                    None,
                                    3.0),
                     "InstituteK": (os.path.join(DATA_BASE_DIR, "InstK_phantomQA"), # Siemens 3.0T PrismaFit?
-                                   ("config/embrace/diffusion_siemens_config.yaml", None),
+                                   ("../config/embrace/diffusion_siemens_config.yaml", None),
                                    None,
                                    3.0),
                     "InstituteL": (os.path.join(DATA_BASE_DIR, "InstL_phantomQA"), # Siemens 3.0T Skyra
-                                   ("config/embrace/diffusion_siemens_config.yaml", None),
+                                   ("../config/embrace/diffusion_siemens_config.yaml", None),
                                    None,
                                    3.0),
                     "InstituteM": (os.path.join(DATA_BASE_DIR, "InstM_phantomQA"), # Siemens 3.0T Verio
-                                   ("config/embrace/diffusion_siemens_config.yaml", None),
+                                   ("../config/embrace/diffusion_siemens_config.yaml", None),
                                    None,
                                    3.0),
                     "InstituteN": (os.path.join(DATA_BASE_DIR, "InstN_phantomQA"), # GE 3.0T Discovery, Trial Series Not Used (due to 2 degrees increase)
-                                   ("config/embrace/diffusion_GE_discovery_config.yaml", None),
+                                   ("../config/embrace/diffusion_GE_discovery_config.yaml", None),
                                    None,
                                    3.0)}
 

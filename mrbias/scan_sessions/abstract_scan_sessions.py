@@ -198,11 +198,13 @@ class ScanSessionAbstract(ABC):
                 # if the current row is a duplicate / exists in the current group then create a new group
                 group_seriesUID_dict = OrderedDict()
                 current_group = OrderedDict()
+                prev_spatial_key = None
                 category_idx = 0
                 for idx, r in df.iterrows():
                     # only consider rows of the current category
                     if category_name == r.Category:
                         set_name = mu.key_fmt % (category_name, category_idx)
+
                         # if its not based on a variable then every image will be a unique on in the category (i.e. PD/T2 series)
                         if variables_of_interest is None:
                             group_seriesUID_dict[set_name] = [r.SeriesInstanceUID]
@@ -210,13 +212,22 @@ class ScanSessionAbstract(ABC):
                         else:
                             # Duplicates based on the reference geometry and
                             # variables of interest (flip angle, inversion time etc.)
+                            # also include the spatial characteristics to avoid overflow into slightly different sequence
+                            # i.e. sequence 1 (b=0) and sequence 2 (b=100) can both get incorrectly identified as ImageSet=dw_002
                             # build the key
                             match_list = []
                             for v in variables_of_interest:
                                 match_list.append(r[v])
                             match_key = tuple(match_list)
+                            # build a spatial props key
+                            spatial_list = []
+                            for v in ["SliceThickness", "PixelSpacing", "Rows", "Columns"]:
+                                spatial_list.append(r[v])
+                            spatial_key = tuple(spatial_list)
+                            if prev_spatial_key is None:
+                                prev_spatial_key = spatial_key
                             # check if its a duplicate of something in the current group
-                            if match_key in current_group.keys():
+                            if (match_key in current_group.keys()) or (spatial_key != prev_spatial_key):
                                 # store a list of seriesUIDs from the current group
                                 group_seriesUID_dict[set_name] = list(current_group.values())
                                 category_idx = category_idx + 1
@@ -226,6 +237,8 @@ class ScanSessionAbstract(ABC):
                             else:
                                 # add it to the current group
                                 current_group[match_key] = r.SeriesInstanceUID
+                            # store the previous spatial key for comparison with the next series
+                            prev_spatial_key = spatial_key
                 # save the last group (no duplicate event to trigger save in loop)
                 set_name = mu.key_fmt % (category_name, category_idx)
                 group_seriesUID_dict[set_name] = list(current_group.values())

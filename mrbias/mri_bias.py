@@ -327,7 +327,8 @@ class MRBIAS(object):
 
                 # create a roi detector
                 detect_kwargs = {'flip_cap_dir': False,
-                                 'debug_vis': False,
+                                 'debug_vis': False, # TODO: add parameter in config file and link here
+                                 'inner_ring_only': True, # TODO: add parameter in config file for diffusion ROI shape method
                                  'fine_tune_rois': roi_shape_fine_tune}
                 if geom_image.series_number in roi_flip_cap_series_numbers:
                     detect_kwargs['flip_cap_dir'] = True
@@ -756,12 +757,12 @@ class MRBIAS(object):
         # calculate summary metrics and create summary df
         comb_df = pd.concat(df_list, ignore_index=True)
         sorted_df = comb_df.sort_values(by='RoiIndex', ascending=True)
-        pooled_df = sorted_df.groupby('RoiLabel')['D (mean)'].agg(['mean', 'std'])
+        pooled_df = sorted_df.groupby('RoiLabel')['ADC (mean)'].agg(['mean', 'std'])
         pooled_df = pooled_df.sort_values(by='RoiLabel', key=lambda x: x.str.extract('(\d+)', expand=False).astype(int))
         pooled_df['RC_st'] = 2.77 * pooled_df.iloc[:, 1]  # Assuming column 1 is ADC
         pooled_df['CV_st'] = 100 * pooled_df.iloc[:, 1] / pooled_df.iloc[:, 0]
         df_list[0] = df_list[0].set_index('RoiLabel')
-        pooled_df['ref'] = df_list[0]['D_reference']
+        pooled_df['ref'] = df_list[0]['ADC_reference']
 
         pooled_df['bias (%)'] = 100 * ((pooled_df['mean'] - pooled_df['ref']) / pooled_df['ref'])
         pooled_df.reset_index(inplace=True)

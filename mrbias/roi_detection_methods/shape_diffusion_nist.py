@@ -69,7 +69,8 @@ class ShapeDiffusionNIST(ShapeDetectionMethodAbstract):
     def __init__(self, target_geo_im, fixed_im, roi_template,
                  flip_cap_dir=False,
                  debug_vis=False,
-                 fine_tune_rois=False):
+                 fine_tune_rois=False,
+                 inner_ring_only=True): # use the inner ring only for intensity based rotational alignment (default:True)
         super().__init__(target_geo_im, fixed_im, roi_template)
         self.moving_roi_image = None
         # image transforms
@@ -87,7 +88,7 @@ class ShapeDiffusionNIST(ShapeDetectionMethodAbstract):
         self.hough_n_circles = 20  # for peak detection of circles
         self.threshold_euclid_mm = 4.0
         self.peak_detect_mod = 0.4
-        self.inner_ring_only = True
+        self.inner_ring_only = inner_ring_only
         self.flip_cap_dir = flip_cap_dir
         self.fine_tune_rois = fine_tune_rois
         # expected bottle size parameters
@@ -222,6 +223,9 @@ class ShapeDiffusionNIST(ShapeDetectionMethodAbstract):
         r_val = self.__construct_moving_roi_image(fixed_coords_and_label_list, moving_coords_and_label_list,
                                                   cap_mod_fix, cap_mod_mov)
         self.moving_roi_image = r_val
+
+        if self.debug_vis:
+            plt.pause(0.01)
 
 
 

@@ -78,6 +78,15 @@ class DetectionMethodAbstract(ABC):
         self.fixed_im = fixed_geom_im
         self.moving_im = moving_im
         self.roi_template = roi_template
+        # setup the colors used for visualisation based on the template ROIs
+        roi_index_list = None
+        if self.roi_template.get_t1_roi_dict():
+            roi_index_list = [roi_dx for roi_dx, im_roi in self.roi_template.get_t1_roi_dict().items()]
+        elif self.roi_template.get_t2_roi_dict():
+            roi_index_list = [roi_dx for roi_dx, im_roi in self.roi_template.get_t2_roi_dict().items()]
+        elif self.roi_template.get_dw_roi_dict():
+            roi_index_list = [roi_dx for roi_dx, im_roi in self.roi_template.get_dw_roi_dict().items()]
+        self.colour = mu.ColourSettings(roi_index_list=roi_index_list)
 
     @abstractmethod
     def detect(self):
@@ -261,6 +270,7 @@ class DetectionMethodAbstract(ABC):
             roi_slice[inner_slice_mask] = 0
 
         # plot
+        cs = self.colour
         if ax is None:
             f, ax = plt.subplots(1, 1)
         ax.imshow(im_slice, cmap='gray',
@@ -268,15 +278,15 @@ class DetectionMethodAbstract(ABC):
                   vmax=np.mean(im_slice)+2.0*np.std(im_slice),
                   extent=extent)
         i = ax.imshow(np.ma.masked_where(roi_slice == 0, roi_slice),
-                      cmap='nipy_spectral', vmin=np.min(roi_list)-1, vmax=np.max(roi_list)+1,
+                      cmap=cs.get_cmap(), vmin=cs.get_vmin(roi_list), vmax=cs.get_vmax(roi_list),
                       interpolation='none',
-                      alpha=0.7,
+                      alpha=cs.get_cmap_alpha(),
                       extent=extent)
         ax.axis('off')
-        ticks = list(range(np.min(roi_list), np.max(roi_list)+1))
+        ticks = list(range(cs.get_vmin(roi_list)+1, cs.get_vmax(roi_list)))
         ticklabels = [ROI_IDX_LABEL_MAP[x] for x in ticks]
         cb = plt.colorbar(mappable=i, ax=ax,
-                     ticks=ticks)
+                          ticks=ticks)
         cb.set_ticklabels(ticklabels=ticklabels)
         if title is not None:
             ax.set_title(title)

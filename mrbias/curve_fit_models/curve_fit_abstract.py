@@ -111,7 +111,8 @@ class CurveFitROI(imset.ImageSetROI):
                  rescale_slope_list=None, rescale_intercept_list=None,
                  scale_slope_list=None, scale_intercept_list=None,
                  bits_allocated=None, bits_stored=None,
-                 scanner_make=None):
+                 scanner_make=None,
+                 color_settings=None):
         super().__init__(label, voxel_data_array, voxel_data_xyz, measurement_variable_vector,
                          measurement_variable_name, measurement_variable_units,
                          voxel_pmap_dict=voxel_pmap_dict, derived_map_dict=derived_map_dict,
@@ -146,6 +147,8 @@ class CurveFitROI(imset.ImageSetROI):
         self.is_normalised = False
         # colour settings
         self.colour = mu.ColourSettings()
+        if color_settings is not None:
+            self.colour = color_settings
 
     def exclude_clipped_values(self, percent_clipped_voxels):
         if self.is_averaged or self.is_slice_averaged or self.is_normalised:
@@ -693,7 +696,7 @@ class CurveFitROI(imset.ImageSetROI):
                             alpha=line_alpha, linewidth=1.0)
                 average_param_fit = mean_fitted_kwargs[symbol_of_interest]
             # add a title
-            if symbol_of_interest == "D":
+            if symbol_of_interest == "ADC":
                 ax.set_title("%s\n%s=%0.1f %s\n%s_ref=%0.1f %s" % (self.label,
                                                                     symbol_of_interest, average_param_fit, "µm²/s",
                                                                     symbol_of_interest, self.reference_value, "µm²/s"), fontsize=10)
@@ -711,6 +714,7 @@ class CurveFitROI(imset.ImageSetROI):
             ax.set_ylim(-0.05, 1.05)
             if not show_y_label:
                 ax.set_yticklabels([])
+
 
 
 class CurveFitAbstract(ABC):
@@ -745,6 +749,13 @@ class CurveFitAbstract(ABC):
         # construct a set of curve fitting ROIs including the raw voxel data
         # - get the raw data
         im_set_roi_dict = self.image_set.get_ROI_data()
+
+        # generate color settings to be used by all ROIs
+        roi_index_list = []
+        for roi_dx, im_roi in im_set_roi_dict.items():
+            roi_index_list.append(roi_dx)
+        self.colour = mu.ColourSettings(roi_index_list=roi_index_list)
+
         # find a central slice over all the ROIs (central slice for image)
         centre_dx_list = []
         if self.use_2D_roi:
@@ -820,7 +831,8 @@ class CurveFitAbstract(ABC):
                                  scale_intercept_list=im_roi.scale_intercept_list,
                                  bits_allocated=im_roi.bits_allocated,
                                  bits_stored=im_roi.bits_stored,
-                                 scanner_make=im_roi.scanner_make)
+                                 scanner_make=im_roi.scanner_make,
+                                 color_settings=self.colour)
             self.cf_rois[roi_dx] = cf_roi
 
 
@@ -1340,14 +1352,21 @@ class CurveFitAbstract(ABC):
                               right=0.9,
                               top=0.8,
                               wspace=0.1,
-                              hspace=0.5)
+                              hspace=0.6)
         else:
             f.subplots_adjust(left=0.1,
                               bottom=0.1,
                               right=0.9,
                               top=0.8,
                               wspace=0.5,
-                              hspace=0.5)
+                              hspace=0.6)
+        # rotate the x-axis labels
+        roi_dx = 0
+        for axes_row in axes_arr:
+            for ax_dx, ax in enumerate(axes_row):
+                if roi_dx < n_rois:
+                    ax.tick_params("x", rotation=45)
+                    roi_dx = roi_dx + 1
         # draw it on the pdf
         pil_f = mu.mplcanvas_to_pil(f)
         width, height = pil_f.size
@@ -1409,9 +1428,8 @@ class CurveFitAbstract(ABC):
             # create the color pallete
             roi_labels = df_plot.drop_duplicates(subset=["RoiLabel"]).RoiLabel
             col_pal = []
-            col_settings = mu.ColourSettings()
             for roi_label in roi_labels:
-                col_pal.append(col_settings.get_ROI_colour(roi_label))
+                col_pal.append(self.colour.get_ROI_colour(roi_label))
 
             axs = [ax for ax in [ax1, ax2, ax3] if (ax is not None)]
             for ax in axs:
@@ -1444,7 +1462,11 @@ class CurveFitAbstract(ABC):
                     xtick_label_vec.append("%s\n(%s=%0.2f ms)" % (roi_name,
                                                                 reference_label.replace("_reference", "_ref"),
                                                                 roi_ref_relax_val))
-            
+            # update the x-axis label
+            for ax in [ax1, ax2, ax3]:
+                if ax is not None:
+                    ax.set_xlabel("ROI Label")
+
             # set the axis limits
             ax2.set(ylim=(-central_limit_pcnt, central_limit_pcnt))
             if ax1 is not None:

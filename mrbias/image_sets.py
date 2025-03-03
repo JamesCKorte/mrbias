@@ -371,6 +371,9 @@ class ImageSetAbstract(ABC):
             ax_row_2a = [f.add_subplot(gs02[0, x]) for x in range(rois_per_row)]
             ax_row_2b = [f.add_subplot(gs02[1, x]) for x in range(rois_per_row)]
 
+        # generate the color settings based on mask values
+        cs = mu.ColourSettings(roi_index_list=roi_vals)
+
         # draw the main slice for reference
         c_x, c_y, c_z = np.array(mask_arr.shape)//2
         if n_rois:
@@ -380,13 +383,14 @@ class ImageSetAbstract(ABC):
                             np.median(roi_xyz[2]).astype(int)
         roi_slice = mask_arr[c_x, :, :]
         im_slice = base_arr[c_x, :, :]
-        ax_glob.imshow(im_slice, cmap='gray')
+        i_gray = ax_glob.imshow(im_slice, cmap='gray')
+        g_vmin, g_vmax = i_gray.get_clim()
         i = ax_glob.imshow(np.ma.masked_where(roi_slice == 0, roi_slice),
-                           cmap='nipy_spectral', vmin=np.min(all_roi_values) - 1, vmax=np.max(all_roi_values) + 1,
+                           cmap=cs.get_cmap(), vmin=cs.get_vmin(all_roi_values), vmax=cs.get_vmax(all_roi_values),
                            interpolation='none',
-                           alpha=0.7)
+                           alpha=cs.get_cmap_alpha())
         ax_glob.axis('off')
-        ticks = list(range(np.min(all_roi_values), np.max(all_roi_values) + np.uint16(1)))
+        ticks = list(range(cs.get_vmin(all_roi_values)+np.uint16(1), cs.get_vmax(all_roi_values)))
         ticklabels = [ROI_IDX_LABEL_MAP[x] for x in ticks]
         cb = plt.colorbar(mappable=i, ax=ax_glob,
                           ticks=ticks)
@@ -440,23 +444,26 @@ class ImageSetAbstract(ABC):
                                 vmin = -20.0
                                 vmax =  20.0
                                 olay_cmap = "RdYlGn"
+                                olay_cmap_alpha = 0.7
                             else:
                                 vmin = 0.
                                 vmax = 15.0
                                 olay_cmap = "nipy_spectral"
+                                olay_cmap_alpha = 0.7
                         else:
                             overlay_slice = roi_slice
-                            vmin = np.min(all_roi_values) - 1
-                            vmax = np.max(all_roi_values) + 1
-                            olay_cmap = "nipy_spectral"
+                            vmin = cs.get_vmin(all_roi_values)
+                            vmax = cs.get_vmax(all_roi_values)
+                            olay_cmap = cs.get_cmap()
+                            olay_cmap_alpha = cs.get_cmap_alpha()
                         ax.imshow(zoom_arr,
                                   extent=zoom_extent,
-                                  cmap='gray')
+                                  cmap='gray', vmin=g_vmin, vmax=g_vmax)
                         roi_i = ax.imshow(np.ma.masked_where(roi_slice == 0, overlay_slice),
                                           extent=zoom_extent,
                                           cmap=olay_cmap, vmin=vmin, vmax=vmax,
                                           interpolation='none',
-                                          alpha=0.7)
+                                          alpha=olay_cmap_alpha)
                         ax.set_xticks([])
                         ax.set_xticklabels([])
                         ax.set_yticks([])
@@ -472,7 +479,7 @@ class ImageSetAbstract(ABC):
                                                0, zoom_arr.shape[0] * im_spacing[2]]
                                 sag_ax.imshow(zoom_arr,
                                               extent=zoom_extent,
-                                              cmap='gray')
+                                              cmap='gray', vmin=g_vmin, vmax=g_vmax)
                                 roi_slice = mask_arr[extent_x_a:extent_x_b, c_y, extent_z_a:extent_z_b]
                                 # prepare the overlay data to be used (ROI label, or a parameter map)
                                 overlay_slice = None
@@ -485,7 +492,7 @@ class ImageSetAbstract(ABC):
                                               extent=zoom_extent,
                                               cmap=olay_cmap, vmin=vmin, vmax=vmax,
                                               interpolation='none',
-                                              alpha=0.7)
+                                              alpha=olay_cmap_alpha)
                                 if ax_dx == 0:
                                     sag_ax.set_ylabel("sagittal")
 

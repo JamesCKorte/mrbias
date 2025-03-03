@@ -74,7 +74,7 @@ for i in range(18):
     T2_ROI_LABEL_IDX_MAP["t2_roi_%d" % (i+1)] = i+18+1
 
 DW_ROI_LABEL_IDX_MAP = OrderedDict()
-for i in range(16):
+for i in range(18):
     ROI_IDX_LABEL_MAP[i+36+1] = "dw_roi_%d" % (i+1)
     DW_ROI_LABEL_IDX_MAP["dw_roi_%d" % (i+1)] = i+36+1
 # create a reverse lookup
@@ -90,29 +90,123 @@ class PhantomOptions(IntEnum):
     RELAX_EUROSPIN = 2
     DIFFUSION_NIST = 3
 
+SHARED_COLORMAP_SETTING = 'colorblind_rainbow'  # 'nipy_spectral'
+
+# Colorblind rainbow color map taken from:
+# https://personal.sron.nl/~pault/#sec:qualitative
+def get_cb_rainbow_map():
+    col_arr = [#np.array([232., 236., 251.])/255.,
+               #np.array([221., 216., 239.])/255.,
+               #np.array([209., 193., 225.])/255.,
+               np.array([195., 168., 209.])/255.,
+               np.array([181., 143., 194.])/255.,
+               np.array([167., 120., 180.])/255.,
+               np.array([155.,  98., 167.])/255.,
+               np.array([140.,  78., 153.])/255.,
+               np.array([111.,  76., 155.])/255.,
+               np.array([ 96.,  89., 169.])/255.,
+               np.array([ 85., 104., 184.])/255.,
+               np.array([ 78., 121., 197.])/255.,
+               np.array([ 77., 138., 198.])/255.,
+               np.array([ 78., 150., 188.])/255.,
+               np.array([ 84., 158., 179.])/255.,
+               np.array([ 89., 165., 169.])/255.,
+               np.array([ 96., 171., 158.])/255.,
+               np.array([105., 177., 144.])/255.,
+               np.array([119., 183., 125.])/255.,
+               np.array([140., 188., 104.])/255.,
+               np.array([166., 190.,  84.])/255.,
+               np.array([190., 188.,  72.])/255.,
+               np.array([209., 181.,  65.])/255.,
+               np.array([221., 170.,  60.])/255.,
+               np.array([228., 156.,  57.])/255.,
+               np.array([231., 140.,  53.])/255.,
+               np.array([230., 121.,  50.])/255.,
+               np.array([228.,  99.,  45.])/255.,
+               np.array([223.,  72.,  40.])/255.,
+               np.array([218.,  34.,  34.])/255.,
+               np.array([184.,  34.,  30.])/255.,
+               np.array([149.,  33.,  27.])/255.,
+               np.array([114.,  30.,  23.])/255.]
+    return mpl.colors.ListedColormap(col_arr)
+
 
 class ColourSettings(object):
-    def __init__(self, matplotlib_cmap_name='nipy_spectral'):
+    def __init__(self,
+                 roi_index_list=None,
+                 matplotlib_cmap_name=SHARED_COLORMAP_SETTING):
         self.cmap_name = matplotlib_cmap_name
-        self.cmap = mpl.cm.get_cmap(self.cmap_name)
-        t1_roi_dx_list = list(T1_ROI_LABEL_IDX_MAP.values())
+        # default to a color range which covers all ROI indexes
+        self.t1_label_idx_map = T1_ROI_LABEL_IDX_MAP
+        self.t2_label_idx_map = T2_ROI_LABEL_IDX_MAP
+        self.dw_label_idx_map = DW_ROI_LABEL_IDX_MAP
+        # if the ROI index range is provided then adjust then correct the idx map
+        if roi_index_list is not None:
+            # make a new label -> idx map
+            new_label_idx_map = OrderedDict()
+            for roi_dx in roi_index_list:
+                new_label_idx_map[ROI_IDX_LABEL_MAP[roi_dx]] = roi_dx
+            # assign it to the appropriate class variable
+            roi_label = ROI_IDX_LABEL_MAP[roi_index_list[0]]
+            if roi_label in self.t1_label_idx_map.keys():
+                self.t1_label_idx_map = new_label_idx_map
+            elif roi_label in self.t2_label_idx_map.keys():
+                self.t2_label_idx_map = new_label_idx_map
+            elif roi_label in self.dw_label_idx_map.keys():
+                self.dw_label_idx_map = new_label_idx_map
+
+        if matplotlib_cmap_name == 'colorblind_rainbow':
+            self.cmap = get_cb_rainbow_map()
+            self.cmap_alpha = 0.9
+        else:
+            self.cmap = mpl.cm.get_cmap(self.cmap_name)
+            self.cmap_alpha = 0.7
+        t1_roi_dx_list = list(self.t1_label_idx_map.values())
         self.norm_t1 = mpl.colors.Normalize(vmin=np.min(t1_roi_dx_list)-1, vmax=np.max(t1_roi_dx_list)+1)
-        t2_roi_dx_list = list(T2_ROI_LABEL_IDX_MAP.values())
+        t2_roi_dx_list = list(self.t2_label_idx_map.values())
         self.norm_t2 = mpl.colors.Normalize(vmin=np.min(t2_roi_dx_list)-1, vmax=np.max(t2_roi_dx_list)+1)
-        dw_roi_dx_list = list(DW_ROI_LABEL_IDX_MAP.values())
+        dw_roi_dx_list = list(self.dw_label_idx_map.values())
         self.norm_dw = mpl.colors.Normalize(vmin=np.min(dw_roi_dx_list)-1, vmax=np.max(dw_roi_dx_list)+1)
 
     def get_ROI_colour(self, roi_label):
-        if roi_label in T1_ROI_LABEL_IDX_MAP.keys():
-            return self.cmap(self.norm_t1(T1_ROI_LABEL_IDX_MAP[roi_label]))
-        elif roi_label in T2_ROI_LABEL_IDX_MAP.keys():
-            return self.cmap(self.norm_t2(T2_ROI_LABEL_IDX_MAP[roi_label]))
-        elif roi_label in DW_ROI_LABEL_IDX_MAP.keys():
-            return self.cmap(self.norm_dw(DW_ROI_LABEL_IDX_MAP[roi_label]))
+        if roi_label in self.t1_label_idx_map.keys():
+            return self.cmap(self.norm_t1(self.t1_label_idx_map[roi_label]))
+        elif roi_label in self.t2_label_idx_map.keys():
+            return self.cmap(self.norm_t2(self.t2_label_idx_map[roi_label]))
+        elif roi_label in self.dw_label_idx_map.keys():
+            return self.cmap(self.norm_dw(self.dw_label_idx_map[roi_label]))
         else:
             log("ColourSettings::get_ROI_colour(): label %s not found returning default black" % roi_label,
                 LogLevels.LOG_WARNING)
             return (0.0, 0.0, 0.0)
+
+    def get_cmap(self):
+        return self.cmap
+
+    def get_cmap_alpha(self):
+        return self.cmap_alpha
+
+    # bit of a hacky way to determine type, but works within the existing visualisaiton framework
+    def get_vmin(self, global_roi_indexes):
+        roi_label = ROI_IDX_LABEL_MAP[global_roi_indexes[0]]
+        if roi_label in self.t1_label_idx_map.keys():
+            return np.min(list(self.t1_label_idx_map.values())) - 1
+        elif roi_label in self.t2_label_idx_map.keys():
+            return np.min(list(self.t2_label_idx_map.values())) - 1
+        elif roi_label in self.dw_label_idx_map.keys():
+            return np.min(list(self.dw_label_idx_map.values())) - 1
+        else:
+            return np.min(global_roi_indexes) - 1
+    def get_vmax(self, global_roi_indexes):
+        roi_label = ROI_IDX_LABEL_MAP[global_roi_indexes[0]]
+        if roi_label in self.t1_label_idx_map.keys():
+            return np.max(list(self.t1_label_idx_map.values())) + 1
+        elif roi_label in self.t2_label_idx_map.keys():
+            return np.max(list(self.t2_label_idx_map.values())) + 1
+        elif roi_label in self.dw_label_idx_map.keys():
+            return np.max(list(self.dw_label_idx_map.values())) + 1
+        else:
+            return np.max(global_roi_indexes) + 1
 
 SEABORN_STYLE = "whitegrid"
 

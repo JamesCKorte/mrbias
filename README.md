@@ -10,10 +10,8 @@ https://doi.org/10.1088/1361-6560/acbcbb)
 We recently shared the motivation and basic usage details of the software during [a presentation at the ESMRMB MRITogether conference](https://www.youtube.com/watch?v=QgFzDnjO4Jw&list=PLeDygc8TN_J65c0jM0ms__diTMylbEk9l&index=14&t=18m14s). We also provide some basic instructions for using the software as follows, 
 - [Installation](./README.md#installation)
 - [Basic Usage](./README.md#usage)
-- [Tutorials](./README.md#modifying-the-software-to-your-needs)
-    - [Tutorial 1: adding a new scanner or acquisition protocol](./documentation/adding_a_new_scanner.md)
-    - [Tutorial 2: adding a new region of interest template for a different phantom](./documentation/adding_a_roi_template.md)
-    - [Tutorial 3: adding a new signal model for curve fitting data](./documentation/adding_a_new_model.md)
+- [Tutorials](./documentation/tutorials.md)
+
 
 ### Citation
 If you find our software useful for your research, please reference the following:
@@ -39,17 +37,14 @@ python -m pip install -r requirements.txt
 We have tested the software with Python v3.7 and recommend installing into a virtual environment.
 
 # Usage
-A basic example and test data are included, to verify MR-BIAS is running on your system, please run the test script from the "examples" folder with the command
+A basic example and test data are included, to verify MR-BIAS is running on your system, please run the test script from the "examples" folder with the commands
 ```
+cd examples
 python relaxometry_example_1.py
 ```
 The example program analyses two ISMRM/NIST system phantom image datasets and will generate two reports which can be found in the "mrbias\examples\output" folder. 
 
-## Modifying the software to your needs
-We are working on a number of tutorials to help users modify the software and contribute to this project. So far these include
-- [Tutorial 1: adding a new scanner or acquisition protocol](./documentation/adding_a_new_scanner.md)
-- [Tutorial 2: adding a new region of interest template for a different phantom](./documentation/adding_a_roi_template.md)
-- [Tutorial 3: adding a new signal model for curve fitting data](./documentation/adding_a_new_model.md)
+
 
 
 

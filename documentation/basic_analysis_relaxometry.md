@@ -48,14 +48,14 @@ A snippet of the log printed to the terminal (Figure 2) shows a summary of the i
 
 ### ROI detection
 
-The PDF report includes a visual summary of the ROI detection (Figure 3). The visual summary includes the template image and template ROIs for both T<sub>1</sub> and T<sub>2</sub> regions of the system phantom. There is a checkerboard display for the unregistered and registered geometric image. In the provided example (Figure 3) you can see in the unregistered geometric image that we have deliberately rotated the phantom by a large angle for testing purposes, in the registered images it is clear that the ROI detection has been able to correct the phantom rotation. Finally, the template ROIs have been transformed onto the target image (Figure 3, right), visual inspection of these allows us to conclude that the ROI detection looks reasonable as the coloured circles are located within the circular regions of the phantom.
+The PDF report includes a visual summary of the ROI detection (Figure 3). The visual summary includes the template image and template ROIs for both T<sub>1</sub> and T<sub>2</sub> regions of the system phantom. There is a checkerboard display for the unregistered and registered geometric image. In the provided example (Figure 3) you can see in the unregistered geometric image that we have deliberately rotated the phantom by a large angle for testing purposes. In the registered images, it is clear that the ROI detection has been able to correct the phantom rotation. Finally, the template ROIs have been transformed onto the target image (Figure 3, right), visual inspection of these allows us to conclude that the ROI detection looks reasonable as the coloured circles are located within the circular regions of the phantom.
 <figure>
   <img src="./assets/roi_detection_sysphan_summary.PNG" alt="TODO">
   <figcaption><b>Figure 3:</b>  <i>a visual summary of the ROI detection performed on a system phantom. The figure includes (top row) T<sub>1</sub> images and (bottom row) T<sub>2</sub> images. The (left) template used for ROI detection consists of an image and associated ROIs. The (central) unregistered and registered target images are shown in a checkerboard with the template image to assess the rigid registration. The (right) template ROIs transformed onto the target geometric image are used to visually assess the quality of the ROI detection.</i></figcaption>
 </figure>
-<br><br>
+<br>
 
-The ROI detection is performed on the geometric image, and the result of that process (a rigid transform) is used to transform the template ROIs onto each image used for model fitting. To check the accuracy of ROI detection a summary for each image set is provided in the PDF report, such as this example for a variable flip angle image set (Figure 4). A zoomed view is provided for each ROI, multiple planes (axial and sagittal) are also shown for 3D image sets to help visually assess the quality of the ROI detection.
+The ROI detection is performed on the geometric image, and the result of that process (a rigid transform) is used to transform the template ROIs onto each image used for model fitting. To check the accuracy of ROI detection a summary for each image set is provided in the PDF report, an example of this is provided for a variable flip angle image set (Figure 4). A zoomed view is provided for each ROI, multiple planes (axial and sagittal) are also shown for 3D image sets to help visually assess the quality of the ROI detection.
 <figure>
   <img src="./assets/roi_detection_sysphan_detail.PNG" alt="TODO">
   <figcaption><b>Figure 4:</b>  <i>A summary of detected ROIs as transformed onto a variable flip angle image. The target image (greyscale) has an overlay of the detected (colours) regions of interest.</i></figcaption>
@@ -63,53 +63,102 @@ The ROI detection is performed on the geometric image, and the result of that pr
 
 ### Model fitting
 
-The software will fit a signal model, or in this case a model of relaxation, to the measured signal in each region of interest across all images in an imageset. For example a T<sub>1</sub> relaxation time has been estimated in each ROI for using the variable flip angle imageset and a two parameter signal model. A summary table of the estimated relaxation times is provided in the PDF report (Figure 5) and is also output in a datafile (.csv) if further analysis is desired. The signal equation is also detailed in the PDF report (Figure 5) with a description of the parameters, thier initial values, and thier bounds during the optimisation based curve fitting.
+The software will fit a signal model, or in this case a model of relaxation, to the measured signal in each region of interest across all images in an imageset. For example a T<sub>1</sub> relaxation time has been estimated in each ROI of the variable flip angle imageset using a two parameter signal model. A summary table of the estimated relaxation times is provided in the PDF report (Figure 5) and is also output in a datafile (.csv) if further analysis is desired. The signal equation is detailed in the PDF report (Figure 5) with a description of the parameters, their initial values, and their bounds during the optimisation based curve fitting.
 <figure>
   <img src="./assets/model_fitting_vfa_table.PNG" alt="TODO">
   <figcaption><b>Figure 5:</b>  <i>A summary table of the estimated parameters of a T<sub>1</sub> relaxation model on a variable flip angle (VFA) image set. The ground truth NMR reference values for T<sub>1</sub> relaxation times, as provided by the phantom manufacturor are show in the column 'T1_ref'. The signal equation is detailed below the summary table, including descriptions of the free parameters, thier initial values, and thier bounds during optimisation based curve fitting.</i></figcaption>
 </figure>
 <br><br>
 
-The curvefits are also plotted against the measured data (Figure 6) to allow visual inspection of the quality of the curve fit. Here we can see the (coloured line) curve fit is reasonable in comparison to the (coloured dots) measured data from the images. The (black dots) are measurement points which we have manually exlcuded, in this case images with a flip angle of 15 degrees. The (coloured vertical bars on the dots) standard deviation of the measurement within an ROI for each measurement point is also shown.
+The curves resulting from the model fit are plotted against the measured data (Figure 6) to allow visual inspection of the quality of the curve fit. Here we can see the (coloured line) curve fit is reasonable in comparison to the (coloured dots) measured data from the images. The (black dots) are measurement points which we have manually exlcuded, in this case images with a flip angle of 15 degrees. The (coloured vertical bars on the dots) standard deviation of the measurement within an ROI for each measurement point is also shown.
 <figure>
   <img src="./assets/model_fitting_vfa_detail.PNG" alt="TODO">
   <figcaption><b>Figure 6:</b>  <i>A graphical summary of the signal models as fit to the measured image data for a T<sub>1</sub> variable flip angle (VFA) image set</i></figcaption>
 </figure>
 
-TODO: describe the curve fit bias graph
+A summary of %bias, the deviation of the measured T<sub>1</sub> values in comparison to the NMR reference values provided by the phantom manufacturer (Figure 7) is provided in the PDF report. This provides a quick visual summary of accuracy of estimated T<sub>1</sub> values across all ROIs in the phantom.
 
 <figure>
   <img src="./assets/model_fitting_vfa_bias.PNG" alt="TODO">
-  <figcaption><b>Figure 7:</b>  <i>TODO.</i></figcaption>
+  <figcaption><b>Figure 7:</b>  <i>The percentage error between the estimated T<sub>1</sub> values and the NMR reference values provided by the phantom manufacturer, or %bias, for each ROI in the system phantom. In this dataset the %bias is generally less than 25%, the vial with the shortest relaxation time (t1_roi_14) is an outlier with a %bias > 200%.</i></figcaption>
 </figure>
 
 
 
 ## Expected output from analysis
-
-TODO: describe the output directory structure
+Once the example analysis script has completed running on your computer, you should now have two new folders in the directory "mrbias/examples/output". Both folders should start with "PMCC_SIEMENS-Skyra-3p0T..." and will have a structure similar to that shown in Figure 8. The output folder includes a PDF report (mri_bias.pdf), a logfile of the analysis (mri_bias.txt), a datamap (data_map_000.csv) to link sequence details to their related analysis sub-directory, and a sub-directory for each model fit (t1_vfa..., t1_vir..., t2_mse...). 
 
 <figure>
   <img src="./assets/relaxometry_testsetA_output_directory.PNG" alt="TODO">
-  <figcaption><b>Figure 8:</b>  <i>TODO.</i></figcaption>
+  <figcaption><b>Figure 8:</b>  <i>The expected output directory structure after analysis of mrbias_testset_B.</i></figcaption>
 </figure>
+<br><br>
 
-TODO: describe the output numerical files for the VFA model fit
-
+In each analysis sub-directory we expect two comma separated value (.csv) files to be present (Figure 9). The "model_fit_summary.csv" provides summary metrics for each ROI such as the estimated T<sub>1</sub> relaxation time and the reference values. The "voxel_data.csv" file contains the measurement data for each voxel in an ROI, for example the variable flip angle curve for every voxel. The voxel data file is the processed data from the DICOM files,and has all pre-processing steps applied (i.e. normalisation, clipping detection, averaging).
 <figure>
   <img src="./assets/relaxometry_testsetA_VFA_directory.PNG" alt="TODO">
   <figcaption><b>Figure 9:</b>  <i>TODO.</i></figcaption>
 </figure>
+<br><br>
 
+We recommend that you review the PDF reports generated on your computer, and check that the output for mrbias_testset_B (in the output folder PMCC_SIEMENS-Skyra-3p0T-46069_20200706-201432) is comparable to the figures in this tutorial.
+
+## Running the software on your own datasets
+To run MR-BIAS on your own dataset we suggest making a copy of the example script (below), and then modify a few key lines to point the software at your data.
+```python
+# import required mrbias modules
+from mrbias import MRBIAS
+
+# specify the configuration file to control the analysis
+configuration_filename = os.path.join("..", os.path.join("config", "relaxometry_example_1_config.yaml"))
+# specific the dicom directories to analyse
+dicom_directory_a = "..\data\mrbias_testset_A"
+dicom_directory_b = "..\data\mrbias_testset_B"
+
+# create a MRBIAS analysis object
+mrb = MRBIAS(configuration_filename, write_to_screen=True)
+# run the analysis (output will be created in the "output_directory" specified in the configuration file)
+mrb.analyse(dicom_directory_a)
+# run analysis on a second dicom directory (with the same analysis settings)
+mrb.analyse(dicom_directory_b)
+```
+To get the software to analyse a dataset on your computer, you will need to update the 'dicom_directory' variables to the directories containing your DICOM datasets.
+```python
+dicom_directory_a = "..\path_to_your_dicom_directory"
+dicom_directory_b = "..\path_to_your_second_dicom_directory"
+```
+The configuration file which controls how MR-BIAS will analyse these datasets is currently specified by the following statement. This configuration file is setup to categorise images acquired on a Siemens 3T scanner with sequence parameters as recommended in the Calibre MRI system phantom manual.  
+```python
+configuration_filename = os.path.join("..", os.path.join("config", "relaxometry_example_1_config.yaml"))
+```
+If your data was acquired on another scanner from a different manufacturer or with a different set of sequence parameters, then the image sorting may not categorise your DICOM data correctly. If that is the case, there are a number of pre-defined image sorting options which may match your data (Table 1).
+
+|   Image Sorting Label    |     Phantom     | Manufacturer | Field strength | Comments                                                                             |
+|:------------------------:|:---------------:|:------------:|:--------------:|:-------------------------------------------------------------------------------------|
+|   sys_siemens_3T_skyra   | System Phantom  |   Siemens    |     3.0 T      | Protocols with sequence settings as recommended in the Calibre System Phantom manual |        
+| sys_philips_1p5T_marlin  | System Phantom  |   Philips    |     1.5 T      | Protocols with sequence settings as recommended in the Calibre System Phantom manual |
+
+To select another option, such as 'sys_philips_1p5T_marlin', we suggest you make a copy of 'relaxometry_example_1_config.yaml' and call it something like 'my_config.yaml'. In your file 'my_config.yaml' you will then need to update the block of settings which are responsible for file sorting
+```
+# ====================================================================================================================
+# DICOM sorting options
+# ====================================================================================================================
+dicom_sorting:
+  scan_protocol : "siemens_skyra_3p0T"   
+  scan_protocol_options: ["siemens_skyra_3p0T", "philips_marlin_1p5T"]
+```
+to use the 'sys_philips_1p5T_marlin' option update the 'scan_protocol' line to be the following
+```
+scan_protocol : "philips_marlin_1p5T" 
+```
+If the available sorting options are not suitable for your dataset, then please refer to our tutorial on [adding a new scanner or acquisition protocol](./adding_a_new_scanner.md) or [contact us](./contact.md) for assistance.
 
 ## Concluding remarks
 You have now run your first relaxometry analysis with MR-BIAS, if you had any issues with the example script please [contact us](./contact.md). We hope the tutorial has given you an overview of the basic workflow of the automated analysis, and how you can use the PDF report and the log files to check the analysis is valid, and to view the estimated relaxation rates. 
 
-The following tutorials will help you get started with analysis of your own data
-* [Running the software on your own dataset](./run_it_on_your_own_data.md)
-* [Customising the analysis settings by writing your own configuration file](./writing_a_config_file.md)
+A tutorial which may be of interest is [how to customise the analysis settings by writing your own configuration file](./writing_a_config_file.md). Or please refer to the [main tutorial page](./tutorials.md) for help on other topics.
 
- <br> <br> <br> <br> <br> <br>
+<br> <br> <br> <br> <br> <br>
 
 ### Revision history
 

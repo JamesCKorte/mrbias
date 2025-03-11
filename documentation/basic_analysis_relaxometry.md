@@ -63,26 +63,27 @@ The ROI detection is performed on the geometric image, and the result of that pr
 
 ### Model fitting
 
-TODO: describe the curve fit visualisations
+The software will fit a signal model, or in this case a model of relaxation, to the measured signal in each region of interest across all images in an imageset. For example a T<sub>1</sub> relaxation time has been estimated in each ROI for using the variable flip angle imageset and a two parameter signal model. A summary table of the estimated relaxation times is provided in the PDF report (Figure 5) and is also output in a datafile (.csv) if further analysis is desired. The signal equation is also detailed in the PDF report (Figure 5) with a description of the parameters, thier initial values, and thier bounds during the optimisation based curve fitting.
+<figure>
+  <img src="./assets/model_fitting_vfa_table.PNG" alt="TODO">
+  <figcaption><b>Figure 5:</b>  <i>A summary table of the estimated parameters of a T<sub>1</sub> relaxation model on a variable flip angle (VFA) image set. The ground truth NMR reference values for T<sub>1</sub> relaxation times, as provided by the phantom manufacturor are show in the column 'T1_ref'. The signal equation is detailed below the summary table, including descriptions of the free parameters, thier initial values, and thier bounds during optimisation based curve fitting.</i></figcaption>
+</figure>
+<br><br>
 
+The curvefits are also plotted against the measured data (Figure 6) to allow visual inspection of the quality of the curve fit. Here we can see the (coloured line) curve fit is reasonable in comparison to the (coloured dots) measured data from the images. The (black dots) are measurement points which we have manually exlcuded, in this case images with a flip angle of 15 degrees. The (coloured vertical bars on the dots) standard deviation of the measurement within an ROI for each measurement point is also shown.
 <figure>
   <img src="./assets/model_fitting_vfa_detail.PNG" alt="TODO">
-  <figcaption><b>Figure 5:</b>  <i>TODO.</i></figcaption>
+  <figcaption><b>Figure 6:</b>  <i>A graphical summary of the signal models as fit to the measured image data for a T<sub>1</sub> variable flip angle (VFA) image set</i></figcaption>
 </figure>
 
 TODO: describe the curve fit bias graph
 
 <figure>
   <img src="./assets/model_fitting_vfa_bias.PNG" alt="TODO">
-  <figcaption><b>Figure 6:</b>  <i>TODO.</i></figcaption>
-</figure>
-
-TODO: describe the curve fit numerical table and equation details
-
-<figure>
-  <img src="./assets/model_fitting_vfa_table.PNG" alt="TODO">
   <figcaption><b>Figure 7:</b>  <i>TODO.</i></figcaption>
 </figure>
+
+
 
 ## Expected output from analysis
 

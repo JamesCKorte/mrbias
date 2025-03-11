@@ -28,7 +28,7 @@ The automated analysis is described in detail in [the original MR-BIAS publicati
 
 
 <figure>
-  <img src="./assets/MRBIAS_workflow.png" alt="A diagram of the MR-BIAS automated workflow. Shows the main steps of the workflow which include image sorting, ROI detection, model fitting, and the reporting of results.">
+<img src="./assets/MRBIAS_workflow.png" height="800" alt="A diagram of the MR-BIAS automated workflow. Shows the main steps of the workflow which include image sorting, ROI detection, model fitting, and the reporting of results.">
   <figcaption><b>Figure 1:</b> The MR-BIAS automated workflow requires two inputs; a directory of images(DICOM format) to analyse and a
 configuration file (.yaml format) to control the image analysis. Images are sorted into geometric images for ROI detection and T<sub>1</sub> and
 T<sub>2</sub> image sets for fitting of relaxation models. The software has three outputs; a text based log of the analysis, a PDF formatted visual
@@ -42,7 +42,7 @@ To find the datasets required for relaxometry analysis the software scans the DI
 A snippet of the log printed to the terminal (Figure 2) shows a summary of the image sorting for [mrbias_testset_A](https://github.com/JamesCKorte/mrbias/tree/main/data/mrbias_testset_A). The summary table is ordered by series number and displays other information such as the date, time, and description for each series. Each series is detected as a specific category (geometric, t1_vir, t1_vfa, t2_mse) and images of the same category are grouped together into image sets, for example all the different flip angle images of a VFA image set. The reference geometry (REF. GEOM) shows which geometry image will be used for ROI detection for each image series. The series UID is also provided for each series in case you want to manually verify the correct images are being analysed.
 
 <figure>
-  <img src="./assets/relaxometry_testsetA_sorting_log.png" alt="A snippet from the log printed during the terminal during MR-BIAS analysis, showing a summary of the detected images and their respective categories.">
+  <img src="./assets/relaxometry_testsetA_sorting_log.PNG" alt="A snippet from the log printed during the terminal during MR-BIAS analysis, showing a summary of the detected images and their respective categories.">
   <figcaption><b>Figure 2:</b> The image sorting summary logged to the terminal during executution of MR-BIAS. Each image series is detected as a category and related image series are also grouped into imagesets (i.e. all the flip angle images of a VFA dataset). A similar table is also available in the PDF report.</figcaption>
 </figure>
 
@@ -51,14 +51,14 @@ A snippet of the log printed to the terminal (Figure 2) shows a summary of the i
 TODO: describe what is shown in the summary ROI detection page
 
 <figure>
-  <img src="./assets/roi_detection_sysphan_summary.png" alt="TODO">
+  <img src="./assets/roi_detection_sysphan_summary.PNG" alt="TODO">
   <figcaption><b>Figure 3:</b> TODO.</figcaption>
 </figure>
 
 TODO: describe what is shown in the details ROI detection page
 
 <figure>
-  <img src="./assets/roi_detection_sysphan_detail.png" alt="TODO">
+  <img src="./assets/roi_detection_sysphan_detail.PNG" alt="TODO">
   <figcaption><b>Figure 4:</b> TODO.</figcaption>
 </figure>
 
@@ -67,21 +67,21 @@ TODO: describe what is shown in the details ROI detection page
 TODO: describe the curve fit visualisations
 
 <figure>
-  <img src="./assets/model_fitting_vfa_detail.png" alt="TODO">
+  <img src="./assets/model_fitting_vfa_detail.PNG" alt="TODO">
   <figcaption><b>Figure 5:</b> TODO.</figcaption>
 </figure>
 
 TODO: describe the curve fit bias graph
 
 <figure>
-  <img src="./assets/model_fitting_vfa_bias.png" alt="TODO">
+  <img src="./assets/model_fitting_vfa_bias.PNG" alt="TODO">
   <figcaption><b>Figure 6:</b> TODO.</figcaption>
 </figure>
 
 TODO: describe the curve fit numerical table and equation details
 
 <figure>
-  <img src="./assets/model_fitting_vfa_table.png" alt="TODO">
+  <img src="./assets/model_fitting_vfa_table.PNG" alt="TODO">
   <figcaption><b>Figure 7:</b> TODO.</figcaption>
 </figure>
 
@@ -90,14 +90,14 @@ TODO: describe the curve fit numerical table and equation details
 TODO: describe the output directory structure
 
 <figure>
-  <img src="./assets/relaxometry_testsetA_output_directory.png" alt="TODO">
+  <img src="./assets/relaxometry_testsetA_output_directory.PNG" alt="TODO">
   <figcaption><b>Figure 8:</b> TODO.</figcaption>
 </figure>
 
 TODO: describe the output numerical files for the VFA model fit
 
 <figure>
-  <img src="./assets/relaxometry_testsetA_VFA_directory.png" alt="TODO">
+  <img src="./assets/relaxometry_testsetA_VFA_directory.PNG" alt="TODO">
   <figcaption><b>Figure 9:</b> TODO.</figcaption>
 </figure>
 

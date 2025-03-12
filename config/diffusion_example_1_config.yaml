@@ -20,8 +20,8 @@ phantom_experiment:
 # DICOM sorting options
 # ====================================================================================================================
 dicom_sorting:
-  scan_protocol : "diff_siemens_skyra"   # options include [siemens_skyra_3p0T, philips_marlin_1p5T, philips_ingenia_ambitionX, diff_philips_ingenia_ambitionX]
-  scan_protocol_options: ["siemens_skyra_3p0T", "philips_marlin_1p5T", "philips_ingenia_1p5T", "diff_philips_ingenia_ambitionX"]
+  scan_protocol : "diff_siemens_skyra"   # options include [diff_siemens_skyra, diff_philips_ingenia, diff_philips_ingenia_ambitionX, diff_ge_discovery, diff_ge_optima]
+  scan_protocol_options: ["diff_siemens_skyra", "diff_philips_ingenia", "diff_philips_ingenia_ambitionX", "diff_ge_discovery", "diff_ge_optima"]
   save_sorted_images: False # future feature (not implemented)
 
 

@@ -7,8 +7,8 @@ We are working on a number of tutorials to help users start analysing thier data
 ## Basic usage
 These tutorials cover how to use the software to analyse the provided example datasets. If you are new to MR-BIAS, we recommend you start with the following tutorials:
 - [Tutorial 1: installation instructions](./how_to_install.md)
-- [Tutorial 2: how to analyse relaxometry images (under construction)](./basic_analysis_relaxometry.md)
-- [Tutorial 3: how to analyse diffusion images (under construction)](./basic_analysis_diffusion.md)
+- [Tutorial 2: how to analyse relaxometry images](./basic_analysis_relaxometry.md)
+- [Tutorial 3: how to analyse diffusion images](./basic_analysis_diffusion.md)
 
 ## Adjusting the analysis
 MR-BIAS supports a number of quantitative phantoms, signal models of quantitative parameters (T1, T2, T2*, ADC), MRI scanner manufacturers and imaging protocols. There are also a range of other settings which can be used to customise the analysis. These tutorials provide a list of the available settings, including the default settings, and guidance on which setting may be best for your application.

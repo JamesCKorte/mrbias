@@ -23,7 +23,7 @@ If you find the software useful for your research, please reference the followin
 
 *Korte, J.C., Chin, Z., Carr, M., Holloway, L. and Franich, R.D.*, 2023. [Magnetic resonance biomarker assessment software (MR-BIAS): an automated open-source tool for the ISMRM/NIST system phantom](https://iopscience.iop.org/article/10.1088/1361-6560/acbcbb). Physics in Medicine and Biology.
 
-*Korte, J.C., Norris, S.A., Carrm M.A., Holloway, L., Cahoon, G.D., Neijndorff, B., van Houdt, P. and Franich, R.D.*, Open-source quality assurance for multi-parametric MRI: a diffusion analysis update for the
+*Korte, J.C., Norris, S.A., Carr, M.A., Holloway, L., Cahoon, G.D., Neijndorff, B., van Houdt, P. and Franich, R.D.*, Open-source quality assurance for multi-parametric MRI: a diffusion analysis update for the
 magnetic resonance biomarker assessment software (MR-BIAS), IN REVIEW
 
 

@@ -1,48 +1,30 @@
 # Welcome to MR-BIAS!
-Magnetic Resonance BIomarker Accreditation Software (MR-BIAS) is an automated tool for extracting quantitative MR parameters from NIST/ISMRM system phantom images. The software has been tested on images from a 3T Siemens Skyra, we are currently working with the community to add support for images from other scanners, for enquiries please contact us (james.korte@petermac.org). 
-
 [![PyPI Downloads](https://img.shields.io/pypi/dm/mrbias.svg?label=PyPI%20downloads)](
 https://pypi.org/project/mrbias/)
 [![Relaxometry Paper](https://img.shields.io/badge/DOI-10.1088%2F1361--6560%2Facbcbb-blue)](
 https://doi.org/10.1088/1361-6560/acbcbb)
 
-### Documentation
-We recently shared the motivation and basic usage details of the software during [a presentation at the ESMRMB MRITogether conference](https://www.youtube.com/watch?v=QgFzDnjO4Jw&list=PLeDygc8TN_J65c0jM0ms__diTMylbEk9l&index=14&t=18m14s). We also provide some basic instructions for using the software as follows, 
-- [Installation](./README.md#installation)
-- [Basic Usage](./README.md#usage)
-- [Tutorials](./documentation/tutorials.md)
+Magnetic Resonance BIomarker Assessment Software (MR-BIAS) is an automated tool for extracting quantitative MR parameters from phantom images. The software has been developed and tested for use on the following phantoms:
+* Relaxometry phantoms such as the [ISMRM/NIST system phantom](https://doi.org/10.1002/mrm.28779) and the [Eurospin TO5 phantom](https://leedstestobjects.com/index.php/phantom/magiq-set-to1-to5/)
+* Diffusion phantoms such as the [NIST/NCI/RSNA/QIBA diffusion phantom](https://qmri.com/product/diffusion-phantom/)
+
+## Getting started
+An overview of the motivation and basic usage details of the software are discussed in [a presentation at the ESMRMB MRITogether conference](https://www.youtube.com/watch?v=QgFzDnjO4Jw&list=PLeDygc8TN_J65c0jM0ms__diTMylbEk9l&index=14&t=18m14s). We have put together [a range of tutorials ](./documentation/tutorials.md), including the following which are aimed at getting people started with using MR-BIAS: 
+
+- [Tutorial 1: Installation instructions](./documentation/how_to_install.md)
+- [Tutorial 2: How to analyse relaxometry images](./documentation/basic_analysis_relaxometry.md)
+- [Tutorial 3: How to analyse diffusion images](./documentation/basic_analysis_diffusion.md)
+
+Please [contact us](./documentation/contact.md) if you have any questions, would like help getting the software working on your data, or are keen to contribute to the project.
 
 
-### Citation
-If you find our software useful for your research, please reference the following:
+## Citation
+If you find the software useful for your research, please reference the following:
 
 *Korte, J.C., Chin, Z., Carr, M., Holloway, L. and Franich, R.D.*, 2023. [Magnetic resonance biomarker assessment software (MR-BIAS): an automated open-source tool for the ISMRM/NIST system phantom](https://iopscience.iop.org/article/10.1088/1361-6560/acbcbb). Physics in Medicine and Biology.
 
-
-# Installation
-The software can be downloaded from github with the following command
-```
-git clone https://github.com/JamesCKorte/mrbias.git
-```
-after downloading, change directory into the downloaded folder
-```
-cd mrbias
-```
-The software makes use of existing python packages which can be installed with the following command. This may take some time depending on which packages you already have installed in your python environment.
-```
-python -m pip install -r requirements.txt
-```
-
-### Minimum Requirements
-We have tested the software with Python v3.7 and recommend installing into a virtual environment.
-
-# Usage
-A basic example and test data are included, to verify MR-BIAS is running on your system, please run the test script from the "examples" folder with the commands
-```
-cd examples
-python relaxometry_example_1.py
-```
-The example program analyses two ISMRM/NIST system phantom image datasets and will generate two reports which can be found in the "mrbias\examples\output" folder. 
+*Korte, J.C., Norris, S.A., Carrm M.A., Holloway, L., Cahoon, G.D., Neijndorff, B., van Houdt, P. and Franich, R.D.*, Open-source quality assurance for multi-parametric MRI: a diffusion analysis update for the
+magnetic resonance biomarker assessment software (MR-BIAS), IN REVIEW
 
 
 

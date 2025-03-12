@@ -28,20 +28,19 @@ You should see some text scrolling in your terminal/console window when you run 
 The diffusion_example_1.py script will analyse the diffusion dataset, this will take a few minutes depending on your computer specs. While the analysis is running, you can learn a bit more about MR-BIAS, how it processes the images, estimates ADC values, and how to check the analysis has run successfully.
 
 ## How does the automated analysis work?
-The automated analysis is described in detail in [the original MR-BIAS publication](https://doi.org/10.1088/1361-6560/acbcbb) and in [a presentation at the ESMRMB MRITogether conference (2023)](https://www.youtube.com/watch?v=QgFzDnjO4Jw&list=PLeDygc8TN_J65c0jM0ms__diTMylbEk9l&index=14&t=18m14s). The major steps in the analysis (Figure 1) include image sorting, ROI detection, model fitting, and reporting the results. The input to the analysis is a configuration file (.yaml) and a directory of DICOM images to analyse. The output of the analysis is a textual log file, a visual summary of the analysis (.pdf), and a comma separated value file (.csv) of the estimated ADC values. We will provide some guidance in the following sections on how to interpret the log file and the PDF report to check the major steps of the analysis.
+The automated analysis is described in detail in [the original MR-BIAS publication](https://doi.org/10.1088/1361-6560/acbcbb) and in [a presentation at the ESMRMB MRITogether conference (2023)](https://www.youtube.com/watch?v=QgFzDnjO4Jw&list=PLeDygc8TN_J65c0jM0ms__diTMylbEk9l&index=14&t=18m14s). These references focus on a slightly different phantom used for relaxometry, but the analysis steps are essentially identical for the diffusion phantom. The major steps in the analysis (Figure 1) include image sorting, ROI detection, model fitting, and reporting the results. The input to the analysis is a configuration file (.yaml) and a directory of DICOM images to analyse. The output of the analysis is a textual log file, a visual summary of the analysis (.pdf), and a comma separated value file (.csv) of the estimated ADC values. We will provide some guidance in the following sections on how to interpret the log file and the PDF report to check the major steps of the analysis.
 
 
 <figure>
 <img src="./assets/MRBIAS_workflow.png" height="800" alt="A diagram of the MR-BIAS automated workflow. Shows the main steps of the workflow which include image sorting, ROI detection, model fitting, and the reporting of results.">
   <figcaption><b>Figure 1:</b>  <i>The MR-BIAS automated workflow requires two inputs; a directory of images (DICOM format) to analyse and a
-configuration file (.yaml format) to control the image analysis. Images are sorted into geometric images for ROI detection and T<sub>1</sub> and
-T<sub>2</sub> image sets for fitting of relaxation models. The software has three outputs; a text based log of the analysis, a PDF formatted visual
+configuration file (.yaml format) to control the image analysis. Images are sorted into geometric images for ROI detection and diffusion weighted (DW) image sets for fitting of a apparent diffusion coefficient model. The software has three outputs; a text based log of the analysis, a PDF formatted visual
 summary and a comma separated value file of the model fitting results. This figure is taken from the original MR-BIAS publication (https://doi.org/10.1088/1361-6560/acbcbb)</i></figcaption>
 </figure>
 
 
 ### Image sorting
-To find the datasets required for relaxometry analysis the software scans the DICOM directory and extracts image metadata. The extracted meta-data is used to categorise the images into types, such as a geometric image for ROI detection, of a T<sub>1</sub> VFA series for relaxation time estimation. The results of this automatic image sorting are summarised in the logfile, the PDF report, and printed to the terminal during execution of the script.
+To find the datasets required for diffusion analysis the software scans the DICOM directory and extracts image metadata. The extracted meta-data is used to categorise the images into types, such as a geometric image for ROI detection, or a diffusion weighted image series for ADC estimation. The results of this automatic image sorting are summarised in the logfile, the PDF report, and printed to the terminal during execution of the script.
 
 A snippet of the log printed to the terminal (Figure 2) shows a summary of the image sorting for [mrbias_testset_C](https://github.com/JamesCKorte/mrbias/tree/main/data/mrbias_testset_C). The summary table is ordered by series number and displays other information such as the date, time, and description for each series. Each series is detected as a specific category (dw, adc) and images of the same category are grouped together into image sets, for example all the different b-value images of a DW image set. The reference geometry (REF. GEOM) shows which image will be used for ROI detection for each image series. The series UID is also provided for each series in case you want to manually verify the correct images are being analysed.
 
@@ -52,7 +51,7 @@ A snippet of the log printed to the terminal (Figure 2) shows a summary of the i
 
 ### ROI detection
 
-The ROI detection for the diffusion phantom is shape based, and uses computer vision techniques to search for landmarks such as circles to determine the location of diffusion vials in the phantom. The PDF report includes a visual summary of the ROI detection (Figure 3). The visual summary includes the template image and template ROIs to cover the individual vials of the diffusion phantom. The detected ROIs are displayed on the geometric image in the original image space of the geometric image (target space) and in the image space of the template (template space). The axial, sagittal and coronal planes are shown to allow three dimensional assessment. Visual inspection of these allows us to conclude that the ROI detection looks reasonable as the coloured circles are located within the circular regions of the phantom.
+The ROI detection for the diffusion phantom is shape based, and uses computer vision techniques to search for landmarks such as circles to determine the location of diffusion vials in the phantom. The PDF report includes a visual summary of the ROI detection (Figure 3). The visual summary includes the template image and template ROIs to cover the individual vials of the diffusion phantom. The detected ROIs are displayed on the geometric image in its native image space (target space) and in the image space of the template image (template space). The axial, sagittal and coronal planes are shown to allow three dimensional assessment. Visual inspection of these images allows us to conclude that the ROI detection looks reasonable as the coloured circles are located within the circular regions of the phantom.
 <figure>
   <img src="./assets/roi_detection_diffphan_summary.PNG" alt="TODO">
   <figcaption><b>Figure 3:</b>  <i>a visual summary of the ROI detection performed on a diffusion phantom. The figure includes (top row) axial, (middle row) sagittal, and (bottom row) coronal images. The (left) template used for ROI detection consists of an image and associated ROIs. The (central) detected ROIs are shown on the geometric image, but in the same image space as the template, to assess the ROI detection accuracy. Similarly, the (right) detected ROI are shown on the target geometric image.</i></figcaption>
@@ -67,7 +66,7 @@ The ROI detection is performed on the geometric image, which in this tutorial is
 
 ### Model fitting
 
-The software will fit a signal model, or in this case a model of diffusion, to the measured signal in each region of interest across all images in an imageset. For example an ADC value have been estimated in each ROI of the diffusion weighted imageset using linear regression on a linearised form of an exponential diffusion signal model. A summary table of the estimated ADC values is provided in the PDF report (Figure 5) and is also output in a datafile (.csv) if further analysis is desired. The signal equation is detailed in the PDF report (Figure 5) with a description of the parameters, their initial values, and their bounds during the optimisation based curve fitting.
+The software will fit a signal model, or in this case a model of diffusion, to the measured signal in each region of interest across all images in an imageset. For example, ADC values have been estimated in each ROI of the diffusion weighted imageset using linear regression on a linearised form of an exponential diffusion signal model. A summary table of the estimated ADC values is provided in the PDF report (Figure 5) and is also output in a datafile (.csv) if further analysis is desired. The signal equation is detailed in the PDF report (Figure 5) with a description of the model parameters.
 <figure>
   <img src="./assets/model_fitting_dw_table.PNG" alt="TODO">
   <figcaption><b>Figure 5:</b>  <i>A summary table of the estimated parameters of a ADC model on a diffusion weighted image set. The ground truth NMR reference values for ADC, as provided by the phantom manufacturer are show in the column 'ADC_ref'. The signal equation is detailed below the summary table, including descriptions of the model parameters estimated in the linear regression.</i></figcaption>
@@ -198,7 +197,6 @@ A tutorial which may now be of interest is [how to customise the analysis settin
 |     Date      |   Author    | Changes                                 |
 |:-------------:|:-----------:|:----------------------------------------|
 | 12 March 2025 | James Korte | Created introductory diffusion tutorial |
-
 
 
 

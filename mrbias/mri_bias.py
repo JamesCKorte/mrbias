@@ -919,9 +919,9 @@ class MRBIAS(object):
                          "               update for the magnetic resonance biomarker assessment software (MR-BIAS)\"",
                          "    AUTHORS: James C Korte, Stanley A Norris, Madeline E Carr, Lois Holloway, Glenn D Cahoon",
                          "             Ben Neijndorff, Petra van Houdt, Rick Franich",
-                         "    JOURNAL: UNDER REVIEW",
-                         "       YEAR: UNDER REVIEW",
-                         "        DOI: https://doi.org/TBD"]
+                         "    JOURNAL: Magnetic Resonance Materials in Physics, Biology and Medicine",
+                         "       YEAR: 2025",
+                         "        DOI: https://doi.org/10.1007/s10334-025-01252-4"]
         doi_diffusion = mu.MRBIAS_DIFFUSION_DOI_URL
 
         # write the citation/reference details (relaxometry phantoms)

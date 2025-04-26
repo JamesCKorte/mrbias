@@ -1,8 +1,10 @@
 # Welcome to MR-BIAS!
 [![PyPI Downloads](https://img.shields.io/pypi/dm/mrbias.svg?label=PyPI%20downloads)](
 https://pypi.org/project/mrbias/)
-[![Relaxometry Paper](https://img.shields.io/badge/DOI-10.1088%2F1361--6560%2Facbcbb-blue)](
+[![Relaxometry Paper](https://img.shields.io/badge/Relaxometry_DOI-10.1088%2F1361--6560%2Facbcbb-blue)](
 https://doi.org/10.1088/1361-6560/acbcbb)
+[![Diffusion Paper](https://img.shields.io/badge/Diffusion_DOI-10.1007%2Fs10334--025--01252--4-blue)](
+https://doi.org/10.1007/s10334-025-01252-4)
 
 Magnetic Resonance BIomarker Assessment Software (MR-BIAS) is an automated tool for extracting quantitative MR parameters from phantom images. The software has been developed and tested for use on the following phantoms:
 * Relaxometry phantoms such as the [ISMRM/NIST system phantom](https://doi.org/10.1002/mrm.28779) and the [Eurospin TO5 phantom](https://leedstestobjects.com/index.php/phantom/magiq-set-to1-to5/)
@@ -19,12 +21,11 @@ Please [contact us](./documentation/contact.md) if you have any questions, would
 
 
 ## Citation
-If you find the software useful for your research, please reference the following:
+If you find the software useful for your research, please reference the following open-access journal articles:
 
-*Korte, J.C., Chin, Z., Carr, M., Holloway, L. and Franich, R.D.*, 2023. [Magnetic resonance biomarker assessment software (MR-BIAS): an automated open-source tool for the ISMRM/NIST system phantom](https://iopscience.iop.org/article/10.1088/1361-6560/acbcbb). Physics in Medicine and Biology.
+*Korte, J.C., Chin, Z., Carr, M., Holloway, L. and Franich, R.D.*, 2023. [Magnetic resonance biomarker assessment software (MR-BIAS): an automated open-source tool for the ISMRM/NIST system phantom](https://doi.org/10.1088/1361-6560/acbcbb). Physics in Medicine and Biology.
 
-*Korte, J.C., Norris, S.A., Carr, M.A., Holloway, L., Cahoon, G.D., Neijndorff, B., van Houdt, P. and Franich, R.D.*, Open-source quality assurance for multi-parametric MRI: a diffusion analysis update for the
-magnetic resonance biomarker assessment software (MR-BIAS), IN REVIEW
+*Korte, J.C., Norris, S.A., Carr, M.A., Holloway, L., Cahoon, G.D., Neijndorff, B., van Houdt, P. and Franich, R.D.*, 2025. [Open-source quality assurance for multi-parametric MRI: a diffusion analysis update for the magnetic resonance biomarker assessment software (MR-BIAS)](https://doi.org/10.1007/s10334-025-01252-4). Magnetic Resonance Materials in Physics, Biology and Medicine.
 
 
 

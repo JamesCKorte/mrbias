@@ -23,6 +23,7 @@ Change Log:
   23-June-2022  :               (James Korte) : GitHub Release        MR-BIAS v1.0.0
    16-Jan-2023  :               (James Korte) : Goodness of fit added MR-BIAS v1.0.1
    10-Feb-2024  :               (James Korte) : Increased total number of ROIs
+   27-Apr-2025  :               (James Korte) : Diffusion functionality MR-BIAS v2.0.0
 """
 
 import re

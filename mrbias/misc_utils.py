@@ -53,11 +53,11 @@ import PIL
 import io
 
 
-MRBIAS_VERSION_NUMBER = "1.1.0"
-MRBIAS_VERSION_DATE   = "6th December 2024"
+MRBIAS_VERSION_NUMBER = "2.0.0"
+MRBIAS_VERSION_DATE   = "27th April 2025"
 MRBIAS_URL            = "http://github.com/JamesCKorte/mrbias"
 MRBIAS_RELAXOMETRY_DOI_URL = "https://doi.org/10.1088/1361-6560/acbcbb"
-MRBIAS_DIFFUSION_DOI_URL = MRBIAS_RELAXOMETRY_DOI_URL #"https://doi.org/TBD"  # just point it at the original publication until DOI available
+MRBIAS_DIFFUSION_DOI_URL = "https://doi.org/10.1007/s10334-025-01252-4"
 
 MRBIAS_REPORT_IMAGE_DPI = 500
 

@@ -21,6 +21,7 @@ Change Log:
 --------------------------------------------------------------------------------
 02-August-2021  :               (James Korte) : Initial code for MR-BIAS v0.0
   23-June-2022  :               (James Korte) : GitHub Release   MR-BIAS v1.0
+ 27-April-2025  :               (James Korte) : Diffusion Release MR-BIAS v2.0
 """
 
 import os

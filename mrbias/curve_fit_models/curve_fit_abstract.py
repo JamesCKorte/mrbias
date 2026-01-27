@@ -1453,7 +1453,7 @@ class CurveFitAbstract(ABC):
             for roi_name in roi_labels:
                 df_ROIS = df_plot.drop_duplicates(subset=["RoiLabel"])
                 df_roi = df_ROIS[df_ROIS["RoiLabel"] == roi_name]
-                roi_ref_relax_val = df_roi[reference_label]
+                roi_ref_relax_val = df_roi[reference_label].values[0]
                 if self.get_model_name() == "DWCurveFit2param":
                     xtick_label_vec.append("%s\n(%s=%0.2f µm²/s)" % (roi_name,
                                                                         reference_label.replace("_reference", "_ref"),

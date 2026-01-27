@@ -698,7 +698,7 @@ class ScanSessionAbstract(ABC):
             repetition_time_list = [x[1] for x in image_and_param_list]
             series_instance_uids = [x[2] for x in image_and_param_list]
             # load up each of the echo images
-            unique_param_list = pd.unique(param_list)
+            unique_param_list = pd.unique(pd.Series(param_list))
             col_list = dicom_tag_list + ["RepetitionTime", "SeriesUID", "SeriesNumber",
                                          "SOPInstanceUID", "ImageFilePath", "SliceLocation",
                                          "BitsAllocated", "BitsStored", "RescaleSlope", "RescaleIntercept"]
